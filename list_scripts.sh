@@ -4,11 +4,14 @@
 # RemoveExtension: True
 # Just print the files in the script directory
 
-dir=/usr/local/scripts
+public_dir=/usr/local/scripts
+private_dir=~/files/code/scripts/private
+
 echo ""
-echo "Executable Scripts:"
-ls -ogh $dir | egrep "^.{3}x" 
+echo "Executable Public Scripts:"
+ls -oghp "$public_dir" | egrep "^.{3}x" | grep -v '/$'
 echo ""
-echo "Unexecutable Scripts:"
-ls -ogh $dir | egrep "^.{3}-" 
-echo ""
+if [ -d "$private_dir" ]; then
+  echo "Executable Private Scripts:"
+  ls -oghp "$private_dir" | egrep "^.{3}x" | grep -v '/$'
+fi
