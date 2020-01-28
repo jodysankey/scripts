@@ -164,7 +164,7 @@ def main():
         # Only copy the scripts that actually match this host.
         _clone_repo('scripts', tmpdir)
         _selectively_copy_files(
-            os.path.join(tmpdir, 'scripts', 'src'),
+            os.path.join(tmpdir, 'scripts'),
             DESTINATIONS[host_props['platform']],
             host_props)
 
