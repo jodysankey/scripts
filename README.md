@@ -1,4 +1,4 @@
-#scripts
+# scripts
 
 A collection of random personal scripts I've accumulated over the years, some of
 which are now well over a decade old. Most are in python (always python3), some
