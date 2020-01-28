@@ -6,16 +6,9 @@
 # not relevant based on "AppliesTo" comments.
 #
 # This current version is going to need work to actually
-# run on windows, and there is still work on the auth
-# for bitbucket. Currently did a hacky copy of the jody
-# cross-machine RSA key to root's home.
+# run on windows.
 #========================================================
 # Copyright Jody M Sankey 2010-2020
-#========================================================
-# $HeadURL$
-# Last $Author: jody $
-# $Revision: 720 $
-# $Date: 2009-10-30 18:12:20 -0500 (Fri, 30 Oct 2009) $
 #========================================================
 # AppliesTo: linux, windows
 # RemoveExtension: True
@@ -31,12 +24,12 @@ import sys
 import tempfile
 
 
-# Define machine of each type.
+# Define machines of each type.
 CLIENTS = {'vicki', 'debbie', 'katie', 'sasha', 'scarlett'}
 SERVERS = {'oberon', 'umbriel'}
 
 # Define a pattern for the repository location
-REPO_PATTERN = 'git@bitbucket.org:jodysankey/{}.git'
+REPO_PATTERN = 'https://github.com/jodysankey/{}.git'
 
 # Define destination directories for each OS.
 DESTINATIONS = {'windows':'c:/windows/scripts', 'linux':'/usr/local/scripts'}
