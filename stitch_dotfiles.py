@@ -23,7 +23,10 @@ import sys
 
 
 # Map from username to upstream repo
-REMOTE_URLS = {'jody': 'https://github.com/jodysankey/dotfiles.git'}
+REMOTE_URLS = {'jody': {
+                  'https': 'https://github.com/jodysankey/dotfiles.git',
+                  'ssh': 'git@github.com:jodysankey/dotfiles.git',
+              }}
 
 # Path (relative to the user's home directory) for the git clone
 CLONE_PATH = 'git-dotfiles'
@@ -45,13 +48,15 @@ class Colors(object):
 class Repo(object):
     """A representation of a git repository on local disk and an associated remote."""
 
-    def __init__(self, location, remote):
+    def __init__(self, location, remote_https, remote_ssh):
         self.location = location
-        self.remote = remote
+        self.remote_https = remote_https
+        self.remote_ssh = remote_ssh
 
     def is_valid(self):
         """Returns a tuple of a boolean that is True iff location is a valid git repo pointing to
-        the desired remote and a string describing the failure mode, if any."""
+        the desired remote (either over https or ssh) and a string describing the failure mode,
+        if any."""
         if not path.exists(self.location):
             return (False, 'Path does not exist')
         elif not path.isdir(self.location):
@@ -59,8 +64,9 @@ class Repo(object):
         elif subprocess.check_output(['git', 'rev-parse', '--is-inside-work-tree'],
                                      cwd=self.location).decode('utf-8').strip() != 'true':
             return (False, 'Path is not a git working directory')
-        elif subprocess.check_output(['git', 'remote', 'get-url', 'origin', '--push'],
-                                     cwd=self.location).decode('utf-8').strip() != self.remote:
+        elif (subprocess.check_output(['git', 'remote', 'get-url', 'origin', '--push'],
+                                     cwd=self.location).decode('utf-8').strip()
+                                     not in [self.remote_https, self.remote_ssh]):
             return (False, 'Path is not using the expected remote repository')
         else:
             return (True, 'Path is a valid clone of the expected repository')
@@ -69,9 +75,14 @@ class Repo(object):
         """Performs a clone of the named git repo into a directory in target_dir."""
         if path.exists(self.location):
             raise Exception('Repo path already exists, cannot create')
-        if subprocess.call(['git', 'clone', self.remote, self.location]) != 0:
-            raise Exception(("Error cloning git repo. Maybe check permissions with "
-                             "'git clone {} /tmp/test'").format(self.remote))
+        # Initially try to clone with the more functional but authenticated ssh,
+        # if that fails drop back to https.
+        if subprocess.call(['git', 'clone', self.remote_ssh, self.location]) == 0:
+            return
+        if subprocess.call(['git', 'clone', self.remote_https, self.location]) != 0:
+            raise Exception(("Error cloning git repo on both ssh and https. Maybe check permissions"
+                             "with\n'git clone {} /tmp/test' or 'git clone {} /tmp/test'"
+                             ).format(self.remote_ssh, self.remote_https))
 
     def files(self):
         """Returns a list of the relative paths to be linked in the repo."""
@@ -182,7 +193,7 @@ def _validate_repo(repo, args):
             _fatal('git dir at {} not present, no further checks possible'.format(repo.location), 0)
         else:
             # Even in auto mode ask to create the clone directory. Its a big deal.
-            _user_approval('Clone {} to {}'.format(repo.remote, repo.location),
+            _user_approval('Clone {} to {}'.format(repo.remote_git, repo.location),
                            no_fn=lambda: sys.exit(0))
     repo_valid = repo.is_valid()
     if not repo_valid[0]:
@@ -220,7 +231,7 @@ def _restitch_link(link, args):
             if args.verbose:
                 _info('Valid link {}'.format(link))
         else:
-            _warn('Invalid link: {}'.format(link_valid[1]))
+            _warn('Existing link is invalid: {}'.format(link_valid[1]))
         return False
 
     if filecmp.cmp(link.location, link.target, shallow=False):
@@ -263,10 +274,9 @@ def main(args):
     if user not in REMOTE_URLS:
         _fatal('{} not listed in REMOTE_URLS, cannot determine remote url'.format(user), 2)
     user_clone = path.join(user_home, CLONE_PATH)
-    user_remote = REMOTE_URLS[user]
 
     # Check the git clone is in a healthy state and pointing to the right remote.
-    repo = Repo(user_clone, user_remote)
+    repo = Repo(user_clone, REMOTE_URLS[user]['https'], REMOTE_URLS[user]['ssh'])
     _validate_repo(repo, args)
 
     # Walk through each link in the repo and action it.
