@@ -12,16 +12,17 @@
 # PublicPermissions: True
 #========================================================
 
+import argparse
 import os
 import shutil
 import socket
 import subprocess
 import sys
 
+import git_validation
 import sitemgt
 from sitemgt.software import RepoApplication, NonRepoApplication, CmComponent
-from sitemgt.paths import SITE_XML_FILE, CM_WORKING_DIR, getDeploymentFile
-import svnauthorization
+from sitemgt.paths import SITE_XML_FILE, CM_WORKING_DIR, CM_UPSTREAM_DIR
 
 
 FAILURE_MODES = (('Missing', 'are not installed'),
@@ -30,6 +31,13 @@ FAILURE_MODES = (('Missing', 'are not installed'),
                  ('ModifiedLocally', 'are newer than the CM copy'),
                  ('OutOfDate', 'are older than the CM copy'),
                  ('Unknown', 'are in an indeterminate state'))
+
+
+class InteractiveStatus(object):
+    """Simple data object to track the overall status of an interactive run."""
+    def __init__(self):
+        self.cm_changes = 0
+        self.cancelled = False
 
 
 def prompt(text, options):
@@ -42,43 +50,49 @@ def prompt(text, options):
     return response[0].lower()
 
 
-def run_command(command):
-    """Runs the specified command using the shell and prints the return code."""
+def run_command(command, cwd=None):
+    """Runs the specified command and returns True on success."""
     #print('<<{}>>'.format(command))
-    ret_code = subprocess.call(command, shell=True)
-    print('<<Returned {}>>'.format(ret_code))
-    return ret_code
+    ret_code = subprocess.call(command, cwd=cwd, stderr=subprocess.DEVNULL)
+    if ret_code != 0:
+       print('<<Error: {} returned {}>>'.format(' '.join(command), ret_code))
+    return ret_code == 0
 
 
-def add_svn_working_file(source_file, target):
-    """Copies source file to target and adds to svn, making parent directories and adding
-    them as necessary."""
-    dirs = []
-    d = os.path.dirname(target)
-    while not os.path.exists(d):
-        dirs.append(d)
-        d = os.path.dirname(d)
-    for d in reversed(dirs):
-        os.mkdir(d)
-        if run_command('svn {} add "{}"'.format(auth.subversionParams(), d)) != 0:
-            return
+def add_cm_working_file(source_file, target):
+    """Copies source file to target and stages in git, creating parent directories as necessary.
+    Returns True on success."""
+    directory = os.path.dirname(target)
+    try:
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        print('<<Copy2 {} to {}>>'.format(source_file, target))
+        shutil.copy2(source_file, target)
+    except Exception as ex:
+        print('Exception copying file: {}'.format(ex))
+        return
+    return run_command(['git', 'add', target], cwd=CM_WORKING_DIR)
+
+
+def update_cm_working_file(source_file, target):
+    """Copies source file to target and stages in git. Returns True on success."""
     print('<<Copy {} to {}>>'.format(source_file, target))
-    shutil.copy2(source_file, target)
-    run_command('svn {} add "{}"'.format(auth.subversionParams(), target))
-    commit_svn()
+    try:
+        shutil.copyfile(source_file, target)
+    except Exception as ex:
+        print('Exception copying file: {}'.format(ex))
+        return
+    return run_command(['git', 'add', target], cwd=CM_WORKING_DIR)
 
 
-def update_svn_working_file(source_file, target):
-    """Copies source file to target then prompts for a log message and performs a commit."""
-    print('<<Copy {} to {}>>'.format(source_file, target))
-    shutil.copyfile(source_file, target)
-    commit_svn()
-
-
-def commit_svn():
-    """Prompts for a log message and performs a commit."""
-    message = input('Please enter log message (or return to skip): ')
-    run_command('svn {} commit {} -m "{}"'.format(auth.subversionParams(), CM_WORKING_DIR, message))
+def commit_cm_changes(status):
+    """Prompts for a log message and performs a commit if the supplied status made cm changes."""
+    if status.cm_changes:
+        message = input(('Please enter commit message for the {} staged files (or return to skip):'
+                         ' ').format(status.cm_changes))
+        if message:
+            if run_command(['git', 'commit', '-m', message], cwd=CM_WORKING_DIR):
+                print('Now please push this commit to the upstream on the local server')
 
 
 def output_to_xml(host):
@@ -89,7 +103,6 @@ def output_to_xml(host):
 
 def output_to_text(host):
     """Writes the state of abnormal components in the provided host to stdout as text."""
-
     if host.upgradable_packages:
         print('The following {} packages are upgradable:'.format(len(host.upgradable_packages)))
         for pkg in host.upgradable_packages:
@@ -113,7 +126,6 @@ def output_to_text(host):
                 if failure_mode == 'PartiallyInstalled':
                     problem += ' ' + str(depl.missingPackages)
                 problems.append(problem)
-
         if problems:
             print('The following {} components {}:'.format(len(problems), failure_mode[1]))
             for problem in problems:
@@ -137,50 +149,51 @@ def interactively_correct(host):
                     run_command('aptitude purge {}'.format(pkg[0]))
 
     # For a better user experience, correct problems by failure mode
+    status = InteractiveStatus()
     for failure_mode in FAILURE_MODES:
         for name in sorted(host.expected_deployments.keys()):
             depl = host.expected_deployments[name]
             if depl.status == failure_mode[0]:
                 # Exactly what we do depends on the component type and failure mode
                 if isinstance(depl.component, RepoApplication):
-                    if interactively_correct_repo_application(depl):
-                        return
+                    correct_repo_application(depl, status)
                 elif isinstance(depl.component, NonRepoApplication):
-                    # Can't actually ever fix a non-repo application
                     print(('{} is {}, but is a non-repo application, please correct '
                            'manually').format(name, depl.status))
                 elif isinstance(depl.component, CmComponent):
-                    if interactively_correct_cm_component(depl):
-                        return
+                    correct_cm_component(depl, status)
+                if status.cancelled:
+                    commit_cm_changes(status)
+                    return
+    commit_cm_changes(status)
 
 
-def interactively_correct_repo_application(depl):
+def correct_repo_application(depl, status):
     """Interacts with the user to try and correct configuration problems for the supplied
-    deployment of a RepoApplication on host. Returns True if synchronization should be cancelled."""
+    deployment of a RepoApplication on host. Updates the supplied InteractiveStatus if needed."""
     if not isinstance(depl.component, RepoApplication):
-        raise Exception('interactive correction method called on wrong component type')
+        raise Exception('rrection method called on wrong component type')
 
-    # Don't attempt to do any repo applications outside of the default repository
+    # Don't attempt to do any repo applications outside of the default repository.
     name = depl.component.name
     if hasattr(depl.component, 'repo_distribution'):
         print(('{} is {}, but in a non-standard repository, please correct '
                'manually').format(name, depl.status))
-        return False
+        return
 
     for pkg in depl.missingPackages():
         resp = prompt('Install {} for component {}?'.format(pkg, name), ['Yes', 'No', 'Cancel'])
         if resp == 'c':
-            return True
+            status.cancelled = True
         elif resp == 'y':
             run_command('aptitude install {}'.format(pkg))
-    return False
 
 
-def interactively_correct_cm_component(depl):
+def correct_cm_component(depl, status):
     """Interacts with the user to try and correct configuration problems for the supplied
-    deployment of a CM component on host. Returns True if synchronization should be cancelled."""
+    deployment of a CM component on host. Updates the supplied InteractiveStatus if needed."""
     if not isinstance(depl.component, CmComponent):
-        raise Exception('interactive correction method called on wrong component type')
+        raise Exception('rrection method called on wrong component type')
 
     # If the input contains errors we could be asked to deploy a component without
     # having a deployment path
@@ -188,7 +201,7 @@ def interactively_correct_cm_component(depl):
     if not hasattr(depl, 'location'):
         print(('{} does not have a deployment path specified for this host, please '
                'correct manually').format(name))
-        return False
+        return
 
     # Build the local and cm paths and correct by failure mode
     name = depl.component.name
@@ -199,71 +212,61 @@ def interactively_correct_cm_component(depl):
     if depl.status == 'NotConfigured':
         resp = prompt('Add {} to CM?'.format(name), ['Yes', 'No', 'Cancel'])
         if resp == 'c':
-            return True
+            status.cancelled = True
         elif resp == 'y':
-            add_svn_working_file(local_path, cm_working_path)
-        return False
-    if depl.status == 'Missing':
+            if add_cm_working_file(local_path, cm_working_path):
+                status.cm_changes += 1
+    elif depl.status == 'Missing':
         resp = prompt('Use {} from CM?'.format(name), ['Yes', 'No', 'Cancel'])
         if resp == 'c':
-            return True
+            status.cancelled = True
         elif resp == 'y':
-            print('<<Copy {} to {}>>'.format(cm_working_path, local_path))
+            print('<<Copy2 {} to {}>>'.format(cm_working_path, local_path))
             shutil.copy2(cm_working_path, local_path)
-        return False
-    # depl.status == 'ModifiedLocally' or depl.status == 'OutOfDate'
-    while True:
-        resp = prompt(('Use local file or repository file for {} ({} appears newer)?'
-                      ).format(name, 'local' if depl.status == 'ModifiedLocally' else 'repo'),
-                      ['Local', 'Repo', 'Diff', 'Skip', 'Cancel'])
-        if resp == 'c':
-            return True
-        elif resp == 'd':
-            print('DIFF (< is repository file, > is local file)')
-            subprocess.call(['diff', cm_working_path, local_path])
-        elif resp == 'l':
-            update_svn_working_file(local_path, cm_working_path)
-            return False
-        elif resp == 'r':
-            print('<<Copy {} to {}>>'.format(cm_working_path, local_path))
-            shutil.copy2(cm_working_path, local_path)
-            return False
+    elif depl.status == 'ModifiedLocally' or depl.status == 'OutOfDate':
+        while True:
+            resp = prompt(('Use local file or repository file for {} ({} appears newer)?'
+                          ).format(name, 'local' if depl.status == 'ModifiedLocally' else 'repo'),
+                          ['Local', 'Repo', 'Diff', 'Skip', 'Cancel'])
+            if resp == 'c':
+                status.cancelled = True
+                return
+            elif resp == 'd':
+                print('DIFF (< is repository file, > is local file)')
+                subprocess.call(['diff', cm_working_path, local_path])
+            elif resp == 'l':
+                if update_cm_working_file(local_path, cm_working_path):
+                    status.cm_changes += 1
+                return
+            elif resp == 'r':
+                print('<<Copy {} to {}>>'.format(cm_working_path, local_path))
+                shutil.copy2(cm_working_path, local_path)
+                return
 
 
-def get_mode(argv):
-    """Returns the mode based on the supplied command line arguments, or None if a mode could
-    not be determined."""
-    # TODO: Move over to argparse.
-    if len(argv) == 2:
-        if argv[1] in ['-t', '--text']:
-            return 'text'
-        elif argv[1] in ['-x', '--xml']:
-            return 'xml'
-        elif argv[1] in ['-i', '--interactive']:
-            return 'interactive'
-    return None
+def create_parser():
+    """Creates the definition of the expected command line flags."""
+    parser = argparse.ArgumentParser(
+        description='Site management synchronization script.',
+        epilog='Copyright Jody Sankey 2011-2020')
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('-i', '--interactive', action='store_true',
+                       help="Interact with the user to resolve errors.")
+    group.add_argument('-t', '--text', action='store_true',
+                       help="Output errors in simple text format")
+    group.add_argument('-x', '--xml', action='store_true',
+                       help="Output XML to standard location")
+    return parser
 
 
-def print_usage():
-    """Prints the correct syntax for the script to stdout."""
-    version = sys.version_info
-    print('\nSite management synchronization script (c)2011-2020 Jody Sankey')
-    print('Currently running in Python v{}.{}.{}'.format(*version))
-    print('\n Usage: {} MODE\n'.format(os.path.basename(sys.argv[0])))
-    print(' Where MODE is one of:')
-    print('   -i, --interactive  Interact with user to resolve errors')
-    print('   -t, --text         Output errors in simple text format')
-    print('   -x, --xml          Output XML to standard location')
-
-
-def perform_sync(mode):
+def perform_sync(parsed_args):
     """Attempts a sychronization using the supplied mode."""
     # Get local host name and determine if we have root privileges
     is_root = (os.geteuid() == 0)
     host = socket.gethostname().lower()
 
     # Won't be able to do interactive unless running as root
-    if not is_root and mode == 'interactive':
+    if not is_root and parsed_args.interactive:
         print("Interactive mode can't work effectively unless run as root, sorry")
         sys.exit()
 
@@ -272,21 +275,21 @@ def perform_sync(mode):
         print('ERROR: Could not find SiteDescription at {}'.format(SITE_XML_FILE))
         sys.exit(1)
 
-    # Gather authorization for subversion
-    auth = svnauthorization.SvnAuthorization()
-    if not auth.readFromFile():
-        if mode == 'interactive':
-            auth.readFromTerminal()
-        else:
-            print('ERROR: Could not find a valid authorization in {}'.format(auth.filename))
-            sys.exit(1)
-
-    # Make sure the working copy of subversion is up to date with the repository
-    if len(subprocess.check_output('svn {} stat {}'.format(
-            auth.subversionParams(), CM_WORKING_DIR), shell=True)) > 1:
-        print('ERROR: Working directory is not up to date with repository. Please correct '
-              'before continuing.\n    (e.g. from oberon: svn commit /home/systems/site/svn)')
+    # Check that the working site matches the master
+    validation = git_validation.check_repo(CM_WORKING_DIR, CM_UPSTREAM_DIR)
+    if not validation['is_valid']:
+        print('ERROR: {} is not a valid git repo ({})'.format(CM_WORKING_DIR,
+                                                              validation['problem']))
         sys.exit(1)
+    if not validation['is_synchronized']:
+        print('ERROR: {} is not in sync with upstream ({})'.format(CM_WORKING_DIR,
+                                                                   validation['problem']))
+        if parsed_args.interactive:
+            resp = prompt('Continue using the unverified working directory?', ['Yes', 'No'])
+            if resp == 'n':
+                sys.exit(2)
+        else:
+            sys.exit(1)
 
     # If root, fetch new package definitions
     if is_root:
@@ -302,17 +305,13 @@ def perform_sync(mode):
     site_desc.hosts[host].gatherDeploymentStatus(CM_WORKING_DIR)
 
     # Take the next step based on mode
-    if mode == 'text':
+    if parsed_args.text:
         output_to_text(site_desc.hosts[host])
-    elif mode == 'xml':
+    elif parsed_args.xml:
         output_to_xml(site_desc.hosts[host])
-    elif mode == 'interactive':
+    else:
         interactively_correct(site_desc.hosts[host])
 
 
 if __name__ == '__main__':
-    MODE = get_mode(sys.argv)
-    if MODE is None:
-        print_usage()
-        sys.exit()
-    perform_sync(MODE)
+    perform_sync(create_parser().parse_args())
