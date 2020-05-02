@@ -20,22 +20,20 @@
 #   and where permissions are appropriate e.g. scripts
 #========================================================
 
+import argparse
 from datetime import datetime
 import os
-import socket
 import subprocess
+from subprocess import CalledProcessError, DEVNULL
 import sys
 
+import git_validation
 import sitemgt
-from sitemgt.paths import SITE_XML_FILE, WEB_OUTPUT_DIR
-import svnauthorization
+from sitemgt.paths import CM_WORKING_DIR, CM_UPSTREAM_DIR, SITE_XML_FILE
 import tagwriter
 
-#Override to the read/write site for easy development
-if socket.gethostname().lower() in ("vicki", "debbie"):
-    os.environ["SITEPATH"] = "/mnt/site-dev"
-
-auth = svnauthorization.SvnAuthorization()
+GIT_LOG_COMMAND = ('git', 'log', '--pretty=format:%h - %s (%ci)', '--abbrev-commit')
+OUTPUT_ROOT = None
 
 class BodyTagWriter(tagwriter.TagWriter):
     """Extends simple tag writer to open and close a standard data html."""
@@ -139,7 +137,7 @@ class BodyTagWriter(tagwriter.TagWriter):
 
 def make_list_html(heading_iterable_list, object_description, output_base):
     """Creates an html file to list the specified elements."""
-    list_filename = os.path.join(WEB_OUTPUT_DIR, "list_" + output_base)
+    list_filename = os.path.join(OUTPUT_ROOT, "list_" + output_base)
     writer = BodyTagWriter(list_filename, 'list', parent_title=None)
 
     writer.open('p', '')
@@ -158,7 +156,7 @@ def make_list_html(heading_iterable_list, object_description, output_base):
 
 def make_summaries_html(master_hdg, hdg_dict_att_titles_pfx, output_base):
     """Creates an html file to summarize state of the specified elements."""
-    summary_filename = os.path.join(WEB_OUTPUT_DIR, "all_" + output_base)
+    summary_filename = os.path.join(OUTPUT_ROOT, "all_" + output_base)
     writer = BodyTagWriter(summary_filename, None, master_hdg)
 
     for (heading, dic, attributes, titles) in hdg_dict_att_titles_pfx:
@@ -190,7 +188,7 @@ def make_summaries_html(master_hdg, hdg_dict_att_titles_pfx, output_base):
 
 def make_capability_summaries_html(capabilities):
     """Creates an html file to summarizes all capabilities. Two layer table requires unique code"""
-    summary_filename = os.path.join(WEB_OUTPUT_DIR, "all_Capabilities.html")
+    summary_filename = os.path.join(OUTPUT_ROOT, "all_Capabilities.html")
     writer = BodyTagWriter(summary_filename, None, "All Capabilities")
 
     # Gather the current maximums of each index (TODO: move into sitedescription)
@@ -251,7 +249,7 @@ def make_capability_summaries_html(capabilities):
 
 def make_actor_html(actor, english, is_group):
     """Creates an html file for the specified actor"""
-    writer = BodyTagWriter(os.path.join(WEB_OUTPUT_DIR, actor.htmlName()), None,
+    writer = BodyTagWriter(os.path.join(OUTPUT_ROOT, actor.htmlName()), None,
                            english + " : " + actor.name)
 
     # Basic attributes
@@ -432,7 +430,7 @@ def make_actor_html(actor, english, is_group):
 
 def make_capability_html(capability):
     """Creates an html file for the specified capability"""
-    writer = BodyTagWriter(os.path.join(WEB_OUTPUT_DIR, capability.htmlName()),
+    writer = BodyTagWriter(os.path.join(OUTPUT_ROOT, capability.htmlName()),
                            None, "Capability" + " : " + capability.name)
 
     writer.write('p', '', capability.description)
@@ -442,7 +440,7 @@ def make_capability_html(capability):
     writer.write_attribute_para(capability, 'Status', 'status')
     writer.write_attribute_para(capability, 'Notes', 'notes')
 
-    #Build summary requirements table
+    # Build summary requirements table
     writer.write('h2', '', 'System Requirements Summary')
 
     writer.open('table')
@@ -451,7 +449,7 @@ def make_capability_html(capability):
         writer.write_system_requirement_row(sr)
     writer.close()
 
-    #Build partitioning table
+    # Build partitioning table
     writer.write('h2', '', 'Partitioning')
     writer.open('table')
     writer.write_text('<tr><th>Type</th><th>Actor</th>'
@@ -465,16 +463,13 @@ def make_capability_html(capability):
         writer.close()
     writer.close()
 
-
-    #Build detailed tables for each system requirement
+    # Build detailed tables for each system requirement
     writer.write('h2', '', 'System Requirements Breakdown')
-
     for sr in capability.requirement_list:
-
         users = sorted(sr.userSets(), key=lambda act: act.name)
         hosts = sorted(sr.hosts(), key=lambda act: act.name)
 
-        #Summary information
+        # Summary information
         writer.write_text('<h3>&nbsp;</h3>')
         writer.write_text('<h3><a name="{}"></a>{} - {}</h3>'.format(sr.uid, sr.uid, sr.text))
         writer.write_attribute_para(sr, 'Importance', 'importance_text')
@@ -482,7 +477,7 @@ def make_capability_html(capability):
         writer.write_attribute_para(sr, 'Decomposition', 'decomposition')
         writer.write_attribute_para(sr, None, 'notes')
 
-        #Table of automatic checks
+        # Table of automatic checks
         if sr.automatic_checks:
             writer.open('table')
             writer.write_automatic_check_header()
@@ -490,7 +485,7 @@ def make_capability_html(capability):
                 writer.write_automatic_check_row(chk)
             writer.close()
 
-        #Table of manual checks
+        # Table of manual checks
         if sr.manual_checks:
             writer.open('table')
             writer.write_text('<tr><th>Manual Check</th><th>User</th><th>Frequency</th></tr>')
@@ -502,7 +497,7 @@ def make_capability_html(capability):
                 writer.close()
             writer.close()
 
-        #Table of host requirements
+        # Table of host requirements
         writer.open('table')
         writer.open('tr')
         writer.write_text('<th>UID</th><th>Owner</th><th>Text</th><th>Status</th>')
@@ -540,10 +535,10 @@ def make_capability_html(capability):
 
 def make_component_html(component, english):
     """Creates an html file for the specified component"""
-    writer = BodyTagWriter(os.path.join(WEB_OUTPUT_DIR, component.htmlName()),
+    writer = BodyTagWriter(os.path.join(OUTPUT_ROOT, component.htmlName()),
                            None, english + " : " + component.name)
 
-    #Basic attributes
+    # Basic attributes
     writer.write('h2', '', 'Basics')
     writer.write_attribute_para(component, 'Repository Distribution', 'repo_distribution')
     writer.write_attribute_para(component, 'Repository Distribution', 'repo_component')
@@ -562,7 +557,7 @@ def make_component_html(component, english):
     writer.write_attribute_para(component, 'Installation File', 'installation_file')
     if hasattr(component, 'language'):
         writer.write_text('<p><b>Language : </b>{}</p>'.format(component.language.name))
-    #Ensure health and therefore status are up to date by writing health first
+    # Ensure health and therefore status are up to date by writing health first
     writer.write_text('<p><b>Health :</b> {}</p>'.format(component.health))
     writer.write_attribute_para(component, 'Status', 'status')
     if hasattr(component, 'cm_location'):
@@ -574,7 +569,7 @@ def make_component_html(component, english):
         writer.write('h2', '', 'Notes')
         writer.write('p', '', component.notes)
 
-    #Table of all (expected) deployments
+    # Table of all (expected) deployments
     writer.write('h2', '', 'Deployments')
     if not component.deployments:
         writer.write('p', '', 'No documented deployments to a host')
@@ -638,7 +633,7 @@ def make_component_html(component, english):
         writer.close()
 
 
-    #Table of all dependencies
+    # Table of all dependants
     writer.write('h2', '', 'Dependants')
     if not component.dependers:
         writer.write('p', '', 'No other software components depend on this')
@@ -653,7 +648,7 @@ def make_component_html(component, english):
             writer.close()
         writer.close()
 
-    #Table of all dependencies
+    # Table of all dependencies
     writer.write('h2', '', 'Dependencies')
     if component.dependencies:
         writer.write('p', '', 'Does not depend on any other software components')
@@ -668,7 +663,7 @@ def make_component_html(component, english):
             writer.close()
         writer.close()
 
-    #Table of all relationships
+    # Table of all relationships
     writer.write('h2', '', 'Relationships')
     if not component.relations:
         writer.write('p', '', 'Is not related to any other software components')
@@ -683,34 +678,33 @@ def make_component_html(component, english):
             writer.close()
         writer.close()
 
-    #For CM files actually bring in the file itself
+    # For CM files actually bring in the file itself
     if isinstance(component, sitemgt.CmComponent):
-        svn_name = component.url()
-
+        cm_path = os.path.join(CM_WORKING_DIR, component.cm_location, component.cm_filename)
         writer.write('h2', '', 'File Contents')
         writer.open('pre')
         try:
-            file_data = subprocess.check_output('svn {} cat "{}" 2>&1'.format(
-                auth.subversionParams(), svn_name), shell=True).decode('utf-8')
+            file_data = open(cm_path, 'r').read()
             writer.write_text(file_data.replace('<', '&lt;').replace('>', '&gt;'))
-        except Exception:
-            writer.write_text("Could not read contents for {}".format(svn_name))
+        except OSError:
+            writer.write_text("Could not read contents for {}".format(cm_path))
         writer.close()
 
         writer.write('h2', '', 'File Log')
         writer.open('pre')
         try:
-            log_data = subprocess.check_output('svn {} log "{}" 2>&1'.format(
-                auth.subversionParams(), svn_name), shell=True).decode('utf-8')
+            log_data = subprocess.check_output(
+                list(GIT_LOG_COMMAND) + ['--', cm_path],
+                cwd=CM_WORKING_DIR, stderr=DEVNULL).decode('utf-8')
             writer.write_text(log_data.replace('<', '&lt;').replace('>', '&gt;'))
-        except Exception:
-            writer.write_text("Could not read log for {}".format(svn_name))
+        except CalledProcessError:
+            writer.write_text("Could not read log for {}".format(cm_path))
         writer.close()
 
 
 def make_automatic_check_html(check, english):
     """Creates an html file for the specified component"""
-    output_filename = os.path.join(WEB_OUTPUT_DIR, check.htmlName())
+    output_filename = os.path.join(OUTPUT_ROOT, check.htmlName())
     writer = BodyTagWriter(output_filename, None, english + " : " + check.name)
 
     writer.write('h2', '', 'Supported Requirements')
@@ -728,17 +722,33 @@ def make_automatic_check_html(check, english):
     writer.close()
 
 
-def make_everything():
+def make_everything(args):
     """Creates the entire website, removing and existing files in the target directory."""
-    for file in os.listdir(WEB_OUTPUT_DIR):
-        os.unlink(os.path.join(WEB_OUTPUT_DIR, file))
+    global OUTPUT_ROOT
 
-    # Gather authorization for subversion
-    if not auth.readFromFile():
-        print("ERROR: Could not find a valid authorization in {}".format(auth.filename))
+    # Check that the working site matches the master
+    validation = git_validation.check_repo(CM_WORKING_DIR, CM_UPSTREAM_DIR)
+    if not validation['is_valid']:
+        print('ERROR: {} is not a valid git repo ({})'.format(CM_WORKING_DIR,
+                                                              validation['problem']))
+        sys.exit(1)
+    if not validation['is_synchronized'] and not args.force:
+        print('ERROR: {} is not in sync with upstream ({})'.format(CM_WORKING_DIR,
+                                                                   validation['problem']))
+        print('       run with --force to generate output anyway')
+        sys.exit(1)
+    OUTPUT_ROOT = args.destination
+    if not os.path.isdir(OUTPUT_ROOT):
+        print('ERROR: {} is not a directory'.format(OUTPUT_ROOT))
+        sys.exit(1)
+    if not os.path.exists(os.path.join(os.path.dirname(OUTPUT_ROOT), 'home.html')):
+        print("ERROR: {} doesn't have home.html in its parent".format(OUTPUT_ROOT))
         sys.exit(1)
 
-    #Parse the data
+    for file in os.listdir(OUTPUT_ROOT):
+        os.unlink(os.path.join(OUTPUT_ROOT, file))
+
+    # Parse the data
     sd = sitemgt.SiteDescription(SITE_XML_FILE)
     sd.loadDeploymentStatusFromXmlFile()
 
@@ -798,5 +808,18 @@ def make_everything():
     for check in sd.automatic_checks.values():
         make_automatic_check_html(check, "Check")
 
+
+def create_parser():
+    """Creates the definition of the expected command line flags."""
+    parser = argparse.ArgumentParser(
+        description='Site management website creation script.',
+        epilog='Copyright Jody Sankey 2011-2020')
+    parser.add_argument('destination', type=str,
+                        help="The variable subdirectory to write the output.")
+    parser.add_argument('-f', '--force', action='store_true',
+                        help="Output site even if repo is not currently sychronized.")
+    return parser
+
+
 if __name__ == '__main__':
-    make_everything()
+    make_everything(create_parser().parse_args())
