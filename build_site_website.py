@@ -3,57 +3,50 @@
 #========================================================
 # Python script to build a web version of the Site
 # management XML in user friendly HTML
-# 
+#
 # All data is based on the XML files in the location
 # specified below, and output to the location below
 #========================================================
 # Copyright Jody M Sankey 2011
-#========================================================
-# $HeadURL$
-# Last $Author: jody $
-# $Revision: 720 $
-# $Date: 2009-10-30 18:12:20 -0500 (Fri, 30 Oct 2009) $
 #========================================================
 # AppliesTo: linux
 # AppliesTo: oberon
 # RemoveExtension: True
 #========================================================
 # Possible Improvements:
-# Colorize output of Python
-# Colorize output of bash comments
-# Selectively pull in deployed files where available
+# * Colorize output of Python
+# * Colorize output of bash comments
+# * Selectively pull in deployed files where available
 #   and where permissions are appropriate e.g. scripts
 #========================================================
 
+from datetime import datetime
 import os
 import socket
+import subprocess
+import sys
+
+import sitemgt
+from sitemgt.paths import SITE_XML_FILE, WEB_OUTPUT_DIR
+import svnauthorization
+import tagwriter
 
 #Override to the read/write site for easy development
 if socket.gethostname().lower() in ("vicki", "debbie"):
     os.environ["SITEPATH"] = "/mnt/site-dev"
 
-import sys
-import subprocess
-
-from datetime import datetime
-import svnauthorization
-import tagwriter
-import sitemgt
-from sitemgt.paths import SITE_XML_FILE, WEB_OUTPUT_DIR 
-
-
 auth = svnauthorization.SvnAuthorization()
 
 class BodyTagWriter(tagwriter.TagWriter):
-    """Extends simple tag writer to open and close a standard data html"""
+    """Extends simple tag writer to open and close a standard data html."""
 
     def __init__(self, filename, class_name, parent_title):
         super().__init__(filename)
-        self.writeOrphan('!DOCTYPE', 'html')
+        self.write_orphan('!DOCTYPE', 'html')
         self.open('html')
-        self.writeOrphan('link', 'rel="stylesheet" href="../static/style.css" typename="text/css"')
-        self.writeOrphan('meta', 'http-equiv="Content-Type" content="text/html;charset=utf-8"')
-        
+        self.write_orphan('link', 'rel="stylesheet" href="../static/style.css" typename="text/css"')
+        self.write_orphan('meta', 'http-equiv="Content-Type" content="text/html;charset=utf-8"')
+
         attr = ""
         if class_name is not None:
             attr += ' class="{}"'.format(class_name)
@@ -61,136 +54,145 @@ class BodyTagWriter(tagwriter.TagWriter):
             json = "{{'title': '{}', 'date': '{}'}}".format(
                 parent_title, datetime.today().strftime("Page generated at: %Y-%m-%d %H:%M"))
             attr += ' onload="parent.title.postMessage(JSON.stringify({}), \'*\');"'.format(json)
-        self.open('body',attr)
-    
+        self.open('body', attr)
+
     def __del__(self):
-        if self.depth()<2: print("Tried to close too many tags in :" + self.filename)
+        if self.depth() < 2:
+            print("Tried to close too many tags in: " + self.filename)
         self.close()
         self.close()
         super().__del__()
 
-    def writeAttributePara(self, obj, english_name,attr_name):
+    def write_attribute_para(self, obj, english_name, attr_name):
         if hasattr(obj, attr_name):
             if english_name is None:
-                self.writeText('<p>{}</p>'.format(getattr(obj, attr_name)))
+                self.write_text('<p>{}</p>'.format(getattr(obj, attr_name)))
             else:
-                self.writeText('<p><b>{} :</b> {}</p>'.format(
-                       english_name, getattr(obj, attr_name)))
+                self.write_text('<p><b>{} :</b> {}</p>'.format(
+                    english_name, getattr(obj, attr_name)))
 
-    def writeLink(self, text, destination, targetFrame=None):
-        if targetFrame is None:
+    def write_link(self, text, destination, target_frame=None):
+        if target_frame is None:
             self.write('a', 'href="{}"'.format(destination), text)
         else:
-            self.write('a','href="{}" target="{}"'.format(destination, targetFrame), text)
+            self.write('a', 'href="{}" target="{}"'.format(destination, target_frame), text)
 
-    def writeObjectLink(self, siteObject, text=None, targetFrame=None):
+    def write_object_link(self, site_object, text=None, target_frame=None):
         if text is None:
-            text = siteObject.name
-        self.writeLink(text=text, destination=siteObject.htmlName(), targetFrame=targetFrame)
+            text = site_object.name
+        self.write_link(text=text, destination=site_object.htmlName(), target_frame=target_frame)
 
-    def writeNestedObjectLink(self, tag, attributes, siteObject, text=None, targetFrame=None):
+    def write_nested_object_link(self, tag, attributes, site_object, target_frame=None):
         self.open(tag, attributes)
-        self.writeObjectLink(siteObject, text, targetFrame)
+        self.write_object_link(site_object, None, target_frame)
         self.close()
 
-    def writeSystemRequirementHeader(self):
-        self.writeText('<tr><th>UID</th><th>Text</th><th>Importance</th><th>Verification</th><th>Status</th></tr>')
-    def writeSystemRequirementRow(self, system_requirement, generateRowTag=True):
-        if generateRowTag: self.open('tr')
+    def write_system_requirement_header(self):
+        self.write_text('<tr><th>UID</th><th>Text</th><th>Importance</th>'
+                        '<th>Verification</th><th>Status</th></tr>')
+    def write_system_requirement_row(self, system_requirement, generate_row_tag=True):
+        if generate_row_tag:
+            self.open('tr')
         cls = system_requirement.htmlClass()
-        self.writeNestedObjectLink('td', cls, system_requirement)
+        self.write_nested_object_link('td', cls, system_requirement)
         self.write('td', cls, system_requirement.text)
         self.write('td', cls, system_requirement.importance_text)
         self.write('td', cls, system_requirement.verification.description)
         self.write('td', cls, system_requirement.status)
-        if generateRowTag: self.close() #TR
+        if generate_row_tag:
+            self.close() #TR
 
-
-    def writeAutomaticCheckHeader(self):
-        self.writeText('<tr><th>Automatic Check</th><th>Last Run</th><th>Outcome</th><th>Description</th></tr>')
-    def writeAutomaticCheckRow(self, automatic_check, generateRowTag=True):
-        if generateRowTag: self.open('tr')
+    def write_automatic_check_header(self):
+        self.write_text('<tr><th>Automatic Check</th><th>Last Run</th>'
+                        '<th>Outcome</th><th>Description</th></tr>')
+    def write_automatic_check_row(self, automatic_check, generate_row_tag=True):
+        if generate_row_tag:
+            self.open('tr')
         cls = automatic_check.htmlClass()
-        self.writeNestedObjectLink('td', cls, automatic_check)
+        self.write_nested_object_link('td', cls, automatic_check)
         if automatic_check.lastOutcome():
-            self.writeCheckOutcomeRow(automatic_check.lastOutcome(), cls, False)
+            self.write_check_outcome_row(automatic_check.lastOutcome(), cls, False)
         else:
             self.write('td', cls, "N/A")
             self.write('td', cls, "N/A")
             self.write('td', cls, automatic_check.result_error
                        if hasattr(automatic_check, 'result_error') else 'UNKNOWN')
-        if generateRowTag: self.close() #TR
+        if generate_row_tag:
+            self.close() #TR
 
-    def writeCheckOutcomeHeader(self):
-        self.writeText('<tr><th>Run</th><th>Outcome</th><th>Description</th></tr>')
-    def writeCheckOutcomeRow(self, outcome, htmlClass=None, generateRowTag=True):
-        if generateRowTag: self.open('tr')
-        if htmlClass is None:
-            htmlClass = ' class="{}"'.format('good' if outcome.success else 'fail')
-        self.write('td', htmlClass, outcome.timestamp)
-        self.write('td', htmlClass, outcome.outcome())
-        self.write('td', htmlClass, outcome.description)
-        if generateRowTag: self.close() #TR
-        
-    #TODO: Consider adding more of these object specific write functions to simplify the page generators
+    def write_check_outcome_header(self):
+        self.write_text('<tr><th>Run</th><th>Outcome</th><th>Description</th></tr>')
+    def write_check_outcome_row(self, outcome, html_class=None, generate_row_tag=True):
+        if generate_row_tag:
+            self.open('tr')
+        if html_class is None:
+            html_class = ' class="{}"'.format('good' if outcome.success else 'fail')
+        self.write('td', html_class, outcome.timestamp)
+        self.write('td', html_class, outcome.outcome())
+        self.write('td', html_class, outcome.description)
+        if generate_row_tag:
+            self.close() #TR
+
+    # TODO: Consider adding more of these object specific write functions to simplify the page
+    # generators
 
 
-
-        
-def makeListHtml(hdg_iter_pfx, object_description, output_base):
-    """Creates an html file to list the specified elements"""
+def make_list_html(heading_iterable_list, object_description, output_base):
+    """Creates an html file to list the specified elements."""
     list_filename = os.path.join(WEB_OUTPUT_DIR, "list_" + output_base)
-    wt = BodyTagWriter(list_filename, 'list', parent_title = None) 
-    
-    wt.open('p','')
-    wt.writeLink(text='All ' + object_description, destination='all_' + output_base, targetFrame='data')
-    wt.close()
-    for (heading, it) in hdg_iter_pfx:
-        wt.write('h3', '', heading)
-        if type(it) == type(dict()):
-            for k in sorted(it.keys()):
-                wt.writeNestedObjectLink('p', '', it[k], None, 'data')
+    writer = BodyTagWriter(list_filename, 'list', parent_title=None)
+
+    writer.open('p', '')
+    writer.write_link(text='All ' + object_description, destination='all_' + output_base,
+                      target_frame='data')
+    writer.close()
+    for (heading, iterable) in heading_iterable_list:
+        writer.write('h3', '', heading)
+        if isinstance(iterable, dict):
+            for k in sorted(iterable.keys()):
+                writer.write_nested_object_link('p', '', iterable[k], target_frame='data')
         else:
-            for v in it:
-                wt.writeNestedObjectLink('p', '', v, None, 'data')
+            for value in iterable:
+                writer.write_nested_object_link('p', '', value, target_frame='data')
 
 
-def makeSummariesHtml(master_hdg, hdg_dict_att_titles_pfx, output_base):
-    """Creates an html file to summarizes state of the specified elements"""
+def make_summaries_html(master_hdg, hdg_dict_att_titles_pfx, output_base):
+    """Creates an html file to summarize state of the specified elements."""
     summary_filename = os.path.join(WEB_OUTPUT_DIR, "all_" + output_base)
-    wt = BodyTagWriter(summary_filename, None, master_hdg) 
-    
+    writer = BodyTagWriter(summary_filename, None, master_hdg)
+
     for (heading, dic, attributes, titles) in hdg_dict_att_titles_pfx:
-        wt.write('h3', '', heading)
-        wt.open('table')
-        wt.open('tr')
-        wt.write('th','','Name')
+        writer.write('h3', '', heading)
+        writer.open('table')
+        writer.open('tr')
+        writer.write('th', '', 'Name')
         for title in titles:
-            wt.write('th','',title)
-        wt.write('th','','Requirements')
-        wt.close()  #TR
+            writer.write('th', '', title)
+        writer.write('th', '', 'Requirements')
+        writer.close()  #TR
         for ob_name in sorted(dic.keys()):
             ob = dic[ob_name]
-            wt.open('tr')
-            wt.writeNestedObjectLink('td',ob.htmlClass(),ob)
+            writer.open('tr')
+            writer.write_nested_object_link('td', ob.htmlClass(), ob)
             for att in attributes:
-                wt.write('td', ob.htmlClass(), getattr(ob, att) if hasattr(ob,att) else '&nbsp;')
-            wt.open('td',ob.htmlClass())
-            if hasattr(ob,'requirements') and len(ob.requirements)>0:
+                writer.write('td', ob.htmlClass(),
+                             getattr(ob, att) if hasattr(ob, att) else '&nbsp;')
+            writer.open('td', ob.htmlClass())
+            if hasattr(ob, 'requirements') and ob.requirements:
                 for uid in sorted(ob.requirements.keys()):
-                    wt.writeObjectLink(ob.requirements[uid])
+                    writer.write_object_link(ob.requirements[uid])
             else:
-                wt.writeText("&nbsp;")
-            wt.close()  #TD
-            wt.close()  #TR
-        wt.close()      #Table
+                writer.write_text("&nbsp;")
+            writer.close()  #TD
+            writer.close()  #TR
+        writer.close()      #Table
 
 
-def makeCapabilitySummariesHtml(capabilities):
+def make_capability_summaries_html(capabilities):
     """Creates an html file to summarizes all capabilities. Two layer table requires unique code"""
     summary_filename = os.path.join(WEB_OUTPUT_DIR, "all_Capabilities.html")
-    wt = BodyTagWriter(summary_filename, None, "All Capabilities") 
-    
+    writer = BodyTagWriter(summary_filename, None, "All Capabilities")
+
     # Gather the current maximums of each index (TODO: move into sitedescription)
     max_sys = max_host = max_user = 0
     for cap in capabilities:
@@ -202,96 +204,102 @@ def makeCapabilitySummariesHtml(capabilities):
                 elif arq.uid[0] == "H":
                     max_host = max(max_host, arq.uidNumber())
 
-    wt.write("p", "", ("Next System requirement <b>S{:03}</b>, Host requirement <b>H{:03}</b>,"
-             + " User requirement <b>U{:03}</b>").format(max_sys + 1, max_host + 1, max_user + 1))
-    wt.open('table')
-    wt.writeText('<tr><th colspan="2">Capability</th><th colspan="5">System Requirement</th></tr>')
-    wt.writeText('<tr><th>Title</th><th>Status</th><th>UID</th><th>Text</th><th>Importance</th><th>Verification</th><th>Status</th></tr>')
-    
-    #TODO: Move counts of each status into sitedescription
+    writer.write("p", "", ("Next System requirement <b>S{:03}</b>, Host requirement <b>H{:03}</b>,"
+                           + " User requirement <b>U{:03}</b>").format(
+                               max_sys + 1, max_host + 1, max_user + 1))
+    writer.open('table')
+    writer.write_text('<tr><th colspan="2">Capability</th>'
+                      '<th colspan="5">System Requirement</th></tr>')
+    writer.write_text('<tr><th>Title</th><th>Status</th><th>UID</th><th>Text</th>'
+                      '<th>Importance</th><th>Verification</th><th>Status</th></tr>')
+
+    # TODO: Move counts of each status into sitedescription
     status_to_classcount = {}
-    
+
     for cap in capabilities:
-        wt.open('tr')
-        row_count = max(1,len(cap.requirement_list))
-        wt.writeNestedObjectLink('td',cap.htmlClass() + ' rowspan="{}"'.format(row_count),cap)
-        wt.write('td',cap.htmlClass() + ' rowspan="{}"'.format(row_count),cap.status)
-        if len(cap.requirement_list)==0:
-            wt.write('td','hspan="5"','No system requirements')
-            wt.close()
+        writer.open('tr')
+        row_count = max(1, len(cap.requirement_list))
+        writer.write_nested_object_link(
+            'td', cap.htmlClass() + ' rowspan="{}"'.format(row_count), cap)
+        writer.write('td', cap.htmlClass() + ' rowspan="{}"'.format(row_count), cap.status)
+        if not cap.requirement_list:
+            writer.write('td', 'hspan="5"', 'No system requirements')
+            writer.close()
         else:
             for req in cap.requirement_list:
-                if req is not cap.requirement_list[0]: wt.open('tr')
-                wt.writeSystemRequirementRow(req, generateRowTag=False)
-                wt.close() #Row
+                if req is not cap.requirement_list[0]:
+                    writer.open('tr')
+                writer.write_system_requirement_row(req, generate_row_tag=False)
+                writer.close() #Row
                 if req.status not in status_to_classcount.keys():
                     status_to_classcount[req.status] = [req.htmlClass(), 1]
                 else:
                     status_to_classcount[req.status][1] += 1
-    wt.close() #Table
+    writer.close() #Table
 
-    wt.write('p','',' ')
-    wt.open('table')
-    wt.writeText('<tr><th>Status</th><th>Proportion</th></tr>')
+    writer.write('p', '', ' ')
+    writer.open('table')
+    writer.write_text('<tr><th>Status</th><th>Proportion</th></tr>')
     total = sum([v[1] for v in status_to_classcount.values()])
     for item in sorted(status_to_classcount.items(), key=lambda x: x[1][1], reverse=True):
-        wt.open('tr')
-        wt.write('td',item[1][0], item[0])
-        wt.write('td',item[1][0], "{:.1f}%".format((item[1][1] / total) * 100.0))
-        wt.close() #Row
-    wt.close() #Table
+        writer.open('tr')
+        writer.write('td', item[1][0], item[0])
+        writer.write('td', item[1][0], "{:.1f}%".format((item[1][1] / total) * 100.0))
+        writer.close() #Row
+    writer.close() #Table
 
 
-def makeActorHtml(actor,english,is_group):
+def make_actor_html(actor, english, is_group):
     """Creates an html file for the specified actor"""
-    wt = BodyTagWriter(os.path.join(WEB_OUTPUT_DIR,actor.htmlName()),None, english + " : " + actor.name) 
+    writer = BodyTagWriter(os.path.join(WEB_OUTPUT_DIR, actor.htmlName()), None,
+                           english + " : " + actor.name)
 
-    #Basic attributes
-    wt.write('h2','','Basics')
+    # Basic attributes
+    writer.write('h2', '', 'Basics')
     if actor.type == 'host':
-        wt.writeAttributePara(actor, 'IP Address','ip_address')
-        wt.writeAttributePara(actor, 'Purpose', 'purpose')
-        wt.writeAttributePara(actor, 'Operating System','os')
-        wt.writeAttributePara(actor, 'Last Status', 'status_date')
+        writer.write_attribute_para(actor, 'IP Address', 'ip_address')
+        writer.write_attribute_para(actor, 'Purpose', 'purpose')
+        writer.write_attribute_para(actor, 'Operating System', 'os')
+        writer.write_attribute_para(actor, 'Last Status', 'status_date')
     elif actor.type == 'user':
-        wt.writeAttributePara(actor, 'Type', 'account_type')
-        wt.writeAttributePara(actor, 'e-mail','email')        
+        writer.write_attribute_para(actor, 'Type', 'account_type')
+        writer.write_attribute_para(actor, 'e-mail', 'email')
     else:
-        wt.writeAttributePara(actor, 'Description', 'description')
+        writer.write_attribute_para(actor, 'Description', 'description')
 
-    #Either members of a group, or groups of a member
+    # Either members of a group, or groups of a member
     if is_group:
-        wt.write('h2','','Members')
+        writer.write('h2', '', 'Members')
         for k in sorted(actor.members.keys()):
-            wt.writeNestedObjectLink('p','',actor.members[k])
+            writer.write_nested_object_link('p', '', actor.members[k])
     else:
-        wt.write('h2','','Groups')
+        writer.write('h2', '', 'Groups')
         if actor.groups:
             for k in sorted(actor.groups.keys()):
-                wt.writeNestedObjectLink('p','',actor.groups[k])
+                writer.write_nested_object_link('p', '', actor.groups[k])
         else:
-            wt.write('p', '', '{} is not a member of any groups'.format(actor.name))
+            writer.write('p', '', '{} is not a member of any groups'.format(actor.name))
 
-    #Build responsibility table
+    # Build responsibility table
     responsibilities = actor.responsibilities
     if not is_group:
         for group in actor.groups.values():
             responsibilities.update(group.responsibilities)
     if responsibilities:
-        wt.write('h2','','Responsibilities')
-        wt.open('table')
-        wt.writeText('<tr><th>Capability</th><th>Target</th><th>Description</th><th>Rationale</tr>')
+        writer.write('h2', '', 'Responsibilities')
+        writer.open('table')
+        writer.write_text('<tr><th>Capability</th><th>Target</th>'
+                          '<th>Description</th><th>Rationale</tr>')
         for rk in sorted(responsibilities.keys()):
             rsp = responsibilities[rk]
-            wt.open('tr')
-            wt.writeNestedObjectLink('td','',rsp.capability)
-            wt.write('td','', rsp.actor.name)
-            wt.write('td','', rsp.description)
-            wt.write('td','', rsp.rationale if hasattr(rsp,'rationale') else "&nbsp;")
-            wt.close()
-        wt.close()
-
-    #Build requirements tables
+            writer.open('tr')
+            writer.write_nested_object_link('td', '', rsp.capability)
+            writer.write('td', '', rsp.actor.name)
+            writer.write('td', '', rsp.description)
+            writer.write('td', '', rsp.rationale if hasattr(rsp, 'rationale') else "&nbsp;")
+            writer.close()
+        writer.close()
+# Build requirements tables
     requirements = actor.requirements
     if actor.type == 'host':
         hosts = {actor.name:actor}
@@ -299,158 +307,167 @@ def makeActorHtml(actor,english,is_group):
         hosts = actor.members
     else:
         hosts = dict()
-    
+
     if not is_group:
         for group in actor.groups.values():
             requirements.update(group.requirements)
     if requirements:
-        wt.write('h2','','Requirements')
-        wt.open('table')
-        wt.open('tr')
-        wt.writeText('<th>UID</th><th>Site Level Status</th><th>Target</th><th>Text</th><th>Supports</th>')
+        writer.write('h2', '', 'Requirements')
+        writer.open('table')
+        writer.open('tr')
+        writer.write_text('<th>UID</th><th>Site Level Status</th>'
+                          '<th>Target</th><th>Text</th><th>Supports</th>')
         for host_name in sorted(hosts.keys()):
-            wt.write('th','','Software' if len(hosts)==1 else host_name)
-        wt.close()
-        
+            writer.write('th', '', 'Software' if len(hosts) == 1 else host_name)
+        writer.close()
+
         for ark in sorted(requirements.keys()):
             ar = requirements[ark]
-            wt.open('tr')
-            wt.write('a','name="{}"'.format(ar.uid))
+            writer.open('tr')
+            writer.write('a', 'name="{}"'.format(ar.uid))
 
-            normal_class =  ar.htmlClass() if actor is ar.actor else 'class="unknown"'
+            normal_class = ar.htmlClass() if actor is ar.actor else 'class="unknown"'
             # Only hyperlink to the real owner if its not us
-            if(actor is ar.actor):
-                wt.write('td',normal_class, ark)
+            if actor is ar.actor:
+                writer.write('td', normal_class, ark)
             else:
-                wt.writeNestedObjectLink('td',normal_class,ar,ark)
-            wt.write('td',normal_class, ar.status)
-            wt.write('td',normal_class, ar.actor.name)
-            wt.write('td',normal_class, ar.text)
-            wt.open('td',normal_class)
+                writer.open('td', normal_class)
+                writer.write_object_link(ar, ark)
+                writer.close()
+            writer.write('td', normal_class, ar.status)
+            writer.write('td', normal_class, ar.actor.name)
+            writer.write('td', normal_class, ar.text)
+            writer.open('td', normal_class)
             for srk in sorted(ar.system_requirements.keys()):
                 sr = ar.system_requirements[srk]
-                wt.writeObjectLink(sr,sr.uid)
-            wt.close()
+                writer.write_object_link(sr, sr.uid)
+            writer.close()
             for hn in sorted(hosts.keys()):
-                h = hosts[hn] 
-                wt.open('td','class="container"')
-                wt.open('table','class="subtable"')
-                for depl in [d for d in h.expected_deployments.values() if ar in d.primary_requirements.values()]:
-                    wt.writeText('<tr><td class="{}"><a href="{}">{}</a></td></tr>'.format(
-                        depl.functionalHealth(),depl.component.htmlName(),depl.component.name))
-                wt.close(2)
-            wt.close()
-        wt.close()
+                h = hosts[hn]
+                writer.open('td', 'class="container"')
+                writer.open('table', 'class="subtable"')
+                for depl in [d for d in h.expected_deployments.values()
+                             if ar in d.primary_requirements.values()]:
+                    writer.write_text('<tr><td class="{}"><a href="{}">{}</a></td></tr>'.format(
+                        depl.functionalHealth(), depl.component.htmlName(), depl.component.name))
+                writer.close(2)
+            writer.close()
+        writer.close()
 
     #Report whether any upgrades are necessary
-    if(hasattr(actor,'upgradable_packages') and len(actor.upgradable_packages)>0):
-        wt.write('h2','','{} Software Packages Require Upgrade!'.format(len(actor.upgradable_packages)))
-        wt.write('p','','As at {}'.format(actor.status_date))
-    
-    
-    if(hasattr(actor,'expected_deployments')):
+    if hasattr(actor, 'upgradable_packages') and actor.upgradable_packages:
+        writer.write('h2', '', '{} Software Packages Require Upgrade!'.format(
+            len(actor.upgradable_packages)))
+        writer.write('p', '', 'As at {}'.format(actor.status_date))
 
+    if hasattr(actor, 'expected_deployments'):
         #Split expected components by type (i.e. Application/File/Script)
-        component_sets = {} 
-        component_sets['Applications'] = sorted([d for d in actor.expected_deployments.values() if 
-                                          d.component.type.endswith('application')], key=lambda depl: depl.component.name)
-        component_sets['Scripts']     = sorted([d for d in actor.expected_deployments.values() if 
-                                          d.component.type == 'script'],
-                                         key=lambda depl: depl.locationDescription())
-        component_sets['Files']       = sorted([d for d in actor.expected_deployments.values() if 
-                                          d.component.type.endswith('file')], key=lambda depl: depl.locationDescription())
+        component_sets = {}
+        component_sets['Applications'] = sorted(
+            [d for d in actor.expected_deployments.values() if
+             d.component.type.endswith('application')], key=lambda depl: depl.component.name)
+        component_sets['Scripts'] = sorted(
+            [d for d in actor.expected_deployments.values() if
+             d.component.type == 'script'], key=lambda depl: depl.locationDescription())
+        component_sets['Files'] = sorted(
+            [d for d in actor.expected_deployments.values() if
+             d.component.type.endswith('file')], key=lambda depl: depl.locationDescription())
 
         for component_set in sorted(component_sets.keys()):
-            wt.write('h2','','Expected ' + component_set)
-            if len(component_sets[component_set]) == 0:
-                wt.write('p','','No documented ' + component_set.lower())
+            writer.write('h2', '', 'Expected ' + component_set)
+            if not component_sets[component_set]:
+                writer.write('p', '', 'No documented ' + component_set.lower())
             else:
-                wt.open('table')
-                wt.writeText('<tr><th>Name</th><th>Type</th><th>Location</th><th>Supports</th><th>Status</th></tr>')
-                wt.write('p','','Status as at {}'.format(actor.status_date if hasattr(actor,'status_date') else "N/A"))
+                writer.open('table')
+                writer.write_text('<tr><th>Name</th><th>Type</th><th>Location</th>'
+                                  '<th>Supports</th><th>Status</th></tr>')
+                writer.write('p', '', 'Status as at {}'.format(
+                    actor.status_date if hasattr(actor, 'status_date') else "N/A"))
                 for depl in component_sets[component_set]:
-                    wt.open('tr')
-                    wt.writeNestedObjectLink('td',depl.htmlClass(),depl.component)
-                    wt.write('td',depl.htmlClass(), depl.component.type)
-                    wt.write('td',depl.htmlClass(), depl.locationDescription())
-                    wt.open('td',depl.htmlClass())
+                    writer.open('tr')
+                    writer.write_nested_object_link('td', depl.htmlClass(), depl.component)
+                    writer.write('td', depl.htmlClass(), depl.component.type)
+                    writer.write('td', depl.htmlClass(), depl.locationDescription())
+                    writer.open('td', depl.htmlClass())
                     for ark in sorted(depl.primary_requirements.keys()):
                         ar = depl.primary_requirements[ark]
-                        wt.writeObjectLink(ar,ar.uid)
+                        writer.write_object_link(ar, ar.uid)
                     for ark in sorted(depl.secondary_requirements.keys()):
                         ar = depl.secondary_requirements[ark]
-                        wt.writeObjectLink(ar,'('+ar.uid+')')
-                    wt.close()
-                    wt.write('td',depl.htmlClass(), depl.verboseStatus())
-                    wt.close()
-                wt.close()
+                        writer.write_object_link(ar, '('+ar.uid+')')
+                    writer.close()
+                    writer.write('td', depl.htmlClass(), depl.verboseStatus())
+                    writer.close()
+                writer.close()
 
-    if(hasattr(actor,'unexpected_packages') and len(actor.unexpected_packages)>0):
-        wt.write('h2','','Unexpected Software Components')
-        wt.write('p','','As at {}'.format(actor.status_date))
-        wt.open('table')
-        wt.writeText('<tr><th>Package</th><th>Description</th>')
+    if hasattr(actor, 'unexpected_packages') and actor.unexpected_packages:
+        writer.write('h2', '', 'Unexpected Software Components')
+        writer.write('p', '', 'As at {}'.format(actor.status_date))
+        writer.open('table')
+        writer.write_text('<tr><th>Package</th><th>Description</th>')
         for pkg in actor.unexpected_packages:
-            wt.open('tr')
-            wt.write('td','class="fault"',pkg[0])
-            wt.write('td','class="fault"',pkg[1])
-            wt.close()
-        wt.close()
+            writer.open('tr')
+            writer.write('td', 'class="fault"', pkg[0])
+            writer.write('td', 'class="fault"', pkg[1])
+            writer.close()
+        writer.close()
 
     if actor.type == 'host':
         reports = actor.getStatusReportList()
-        if len(reports) > 0:
+        if reports:
             att_hdr_list = reports[0].getAttributesAndHeaders()
-            wt.write('h2','','Status Reports')
-            wt.open('table')
-            wt.open('tr')
+            writer.write('h2', '', 'Status Reports')
+            writer.open('table')
+            writer.open('tr')
             for att_hdr in att_hdr_list:
-                wt.write('th','',att_hdr[1])
-            wt.close()
+                writer.write('th', '', att_hdr[1])
+            writer.close()
             for report in reports:
-                wt.open('tr')
+                writer.open('tr')
                 for att_hdr in att_hdr_list:
-                    wt.write('td','',report.getFormattedAttribute(att_hdr[0]))
-                wt.close()
-            wt.close()
+                    writer.write('td', '', report.getFormattedAttribute(att_hdr[0]))
+                writer.close()
+            writer.close()
 
 
-def makeCapabilityHtml(capability):
+def make_capability_html(capability):
     """Creates an html file for the specified capability"""
-    wt = BodyTagWriter(os.path.join(WEB_OUTPUT_DIR,capability.htmlName()),None, "Capability" + " : " + capability.name)
+    writer = BodyTagWriter(os.path.join(WEB_OUTPUT_DIR, capability.htmlName()),
+                           None, "Capability" + " : " + capability.name)
 
-    wt.write('p', '', capability.description)
+    writer.write('p', '', capability.description)
 
-    wt.write('h2','','Basics')
-    wt.writeText('<p><b>Health :</b> {}</p>'.format(capability.health))
-    wt.writeAttributePara(capability, 'Status', 'status')
-    wt.writeAttributePara(capability, 'Notes', 'notes')
+    writer.write('h2', '', 'Basics')
+    writer.write_text('<p><b>Health :</b> {}</p>'.format(capability.health))
+    writer.write_attribute_para(capability, 'Status', 'status')
+    writer.write_attribute_para(capability, 'Notes', 'notes')
 
     #Build summary requirements table
-    wt.write('h2','','System Requirements Summary')
+    writer.write('h2', '', 'System Requirements Summary')
 
-    wt.open('table')
-    wt.writeSystemRequirementHeader()
+    writer.open('table')
+    writer.write_system_requirement_header()
     for sr in capability.requirement_list:
-        wt.writeSystemRequirementRow(sr)
-    wt.close()
+        writer.write_system_requirement_row(sr)
+    writer.close()
 
     #Build partitioning table
-    wt.write('h2','','Partitioning')
-    wt.open('table')
-    wt.writeText('<tr><th>Type</th><th>Actor</th><th>Responsibility</th><th>Rationale</th></tr>')
+    writer.write('h2', '', 'Partitioning')
+    writer.open('table')
+    writer.write_text('<tr><th>Type</th><th>Actor</th>'
+                      '<th>Responsibility</th><th>Rationale</th></tr>')
     for rsp in capability.responsibility_list:
-        wt.open('tr')
-        wt.write('td','', rsp.actor.type)
-        wt.writeNestedObjectLink('td','',rsp.actor)
-        wt.write('td','', rsp.description)
-        wt.write('td','', rsp.rationale if hasattr(rsp,'rationale') else "&nbsp;")
-        wt.close()
-    wt.close()
+        writer.open('tr')
+        writer.write('td', '', rsp.actor.type)
+        writer.write_nested_object_link('td', '', rsp.actor)
+        writer.write('td', '', rsp.description)
+        writer.write('td', '', rsp.rationale if hasattr(rsp, 'rationale') else "&nbsp;")
+        writer.close()
+    writer.close()
 
-    
+
     #Build detailed tables for each system requirement
-    wt.write('h2','','System Requirements Breakdown')
+    writer.write('h2', '', 'System Requirements Breakdown')
 
     for sr in capability.requirement_list:
 
@@ -458,308 +475,328 @@ def makeCapabilityHtml(capability):
         hosts = sorted(sr.hosts(), key=lambda act: act.name)
 
         #Summary information
-        wt.writeText('<h3>&nbsp;</h3>')
-        wt.writeText('<h3><a name="{}"></a>{} - {}</h3>'.format(sr.uid,sr.uid,sr.text))
-        wt.writeAttributePara(sr, 'Importance', 'importance_text')
-        wt.writeAttributePara(sr.verification, 'Verification', 'description')
-        wt.writeAttributePara(sr, 'Decomposition', 'decomposition')
-        wt.writeAttributePara(sr, None, 'notes')
+        writer.write_text('<h3>&nbsp;</h3>')
+        writer.write_text('<h3><a name="{}"></a>{} - {}</h3>'.format(sr.uid, sr.uid, sr.text))
+        writer.write_attribute_para(sr, 'Importance', 'importance_text')
+        writer.write_attribute_para(sr.verification, 'Verification', 'description')
+        writer.write_attribute_para(sr, 'Decomposition', 'decomposition')
+        writer.write_attribute_para(sr, None, 'notes')
 
         #Table of automatic checks
-        if len(sr.automatic_checks) > 0:
-            wt.open('table')
-            wt.writeAutomaticCheckHeader()
+        if sr.automatic_checks:
+            writer.open('table')
+            writer.write_automatic_check_header()
             for chk in sr.automatic_checks:
-                wt.writeAutomaticCheckRow(chk)
-            wt.close()
+                writer.write_automatic_check_row(chk)
+            writer.close()
 
         #Table of manual checks
-        if len(sr.manual_checks) > 0:
-            wt.open('table')
-            wt.writeText('<tr><th>Manual Check</th><th>User</th><th>Frequency</th></tr>')
+        if sr.manual_checks:
+            writer.open('table')
+            writer.write_text('<tr><th>Manual Check</th><th>User</th><th>Frequency</th></tr>')
             for chk in sr.manual_checks:
-                wt.open('tr')
-                wt.write('td', chk.htmlClass(), chk.name)
-                wt.write('td', chk.htmlClass(), chk.user)
-                wt.write('td', chk.htmlClass(), chk.frequency)
-                wt.close()
-            wt.close()
+                writer.open('tr')
+                writer.write('td', chk.htmlClass(), chk.name)
+                writer.write('td', chk.htmlClass(), chk.user)
+                writer.write('td', chk.htmlClass(), chk.frequency)
+                writer.close()
+            writer.close()
 
         #Table of host requirements
-        wt.open('table')
-        wt.open('tr')
-        wt.writeText('<th>UID</th><th>Owner</th><th>Text</th><th>Status</th>')
+        writer.open('table')
+        writer.open('tr')
+        writer.write_text('<th>UID</th><th>Owner</th><th>Text</th><th>Status</th>')
         for act in users + hosts:
-            wt.writeNestedObjectLink('th','',act)
-        wt.close()
+            writer.write_nested_object_link('th', '', act)
+        writer.close()
         for ar in sr.actor_requirement_list:
-            wt.open('tr')
-            wt.write('td',ar.htmlClass(), ar.uid)
-            wt.writeNestedObjectLink('td',ar.htmlClass(),ar.actor)
-            wt.write('td',ar.htmlClass(), ar.text)
-            wt.write('td',ar.htmlClass(),ar.status)
+            writer.open('tr')
+            writer.write('td', ar.htmlClass(), ar.uid)
+            writer.write_nested_object_link('td', ar.htmlClass(), ar.actor)
+            writer.write('td', ar.htmlClass(), ar.text)
+            writer.write('td', ar.htmlClass(), ar.status)
             for act in users:
-                if act is ar.actor: wt.write('td','class="unmonitored"','&nbsp;')
-                else:               wt.write('td','class="null"')
+                if act is ar.actor:
+                    writer.write('td', 'class="unmonitored"', '&nbsp;')
+                else:
+                    writer.write('td', 'class="null"')
             for act in hosts:
                 if act is ar.actor or (ar.actor.isGroup() and act in ar.actor.members.values()):
-                    wt.open('td','class="container"')
-                    wt.open('table','class="subtable"')
-                    applicable_deployments = [depl for depl in act.expected_deployments.values() 
+                    writer.open('td', 'class="container"')
+                    writer.open('table', 'class="subtable"')
+                    applicable_deployments = [depl for depl in act.expected_deployments.values()
                                               if ar in depl.primary_requirements.values()]
-                    for depl in sorted(applicable_deployments, key=lambda depl: depl.component.name):
-                        wt.writeText('<tr><td class="{}"><a href="{}">{}</a></td></tr>'.format(
-                                     depl.functionalHealth(), depl.component.htmlName(), depl.component.name))
-                    wt.close(2)
+                    for depl in sorted(applicable_deployments,
+                                       key=lambda depl: depl.component.name):
+                        writer.write_text('<tr><td class="{}"><a href="{}">{}</a></td></tr>'.format(
+                            depl.functionalHealth(), depl.component.htmlName(),
+                            depl.component.name))
+                    writer.close(2)
                 else:
-                    wt.write('td','class="null"')
-            wt.close()
-        wt.close()
+                    writer.write('td', 'class="null"')
+            writer.close()
+        writer.close()
 
 
-  
-def makeComponentHtml(component,english):
+def make_component_html(component, english):
     """Creates an html file for the specified component"""
-    wt = BodyTagWriter(os.path.join(WEB_OUTPUT_DIR,component.htmlName()),None, english + " : " + component.name) 
+    writer = BodyTagWriter(os.path.join(WEB_OUTPUT_DIR, component.htmlName()),
+                           None, english + " : " + component.name)
 
     #Basic attributes
-    wt.write('h2','','Basics')
-    wt.writeAttributePara(component, 'Repository Distribution', 'repo_distribution')
-    wt.writeAttributePara(component, 'Repository Distribution', 'repo_component')
-    wt.writeAttributePara(component, 'Directory', 'directory')
+    writer.write('h2', '', 'Basics')
+    writer.write_attribute_para(component, 'Repository Distribution', 'repo_distribution')
+    writer.write_attribute_para(component, 'Repository Distribution', 'repo_component')
+    writer.write_attribute_para(component, 'Directory', 'directory')
 
-    if hasattr(component,'package'):
-        if len(component.package)==1:
-            wt.writeText('<p><b>Repository Package :</b> {}</p>'.format(component.package[0]))
+    if hasattr(component, 'package'):
+        if len(component.package) == 1:
+            writer.write_text('<p><b>Repository Package :</b> {}</p>'.format(component.package[0]))
         else:
-            wt.writeText('<p><b>Repository Package :</b> Multiple (see below for details)</p>')
-    wt.writeAttributePara(component, 'Category', 'category')
-    wt.writeAttributePara(component, 'Vendor', 'vendor')
-    wt.writeAttributePara(component, 'Vendor URL', 'vendor_url')
-    wt.writeAttributePara(component, 'Installation Type', 'installation_type')
-    wt.writeAttributePara(component, 'Install Location', 'install_location')
-    wt.writeAttributePara(component, 'Installation File', 'installation_file')
-    if hasattr(component,'language'):
-        wt.writeText('<p><b>Language : </b>{}</p>'.format(component.language.name))
+            writer.write_text('<p><b>Repository Package :</b> Multiple (see below for details)</p>')
+    writer.write_attribute_para(component, 'Category', 'category')
+    writer.write_attribute_para(component, 'Vendor', 'vendor')
+    writer.write_attribute_para(component, 'Vendor URL', 'vendor_url')
+    writer.write_attribute_para(component, 'Installation Type', 'installation_type')
+    writer.write_attribute_para(component, 'Install Location', 'install_location')
+    writer.write_attribute_para(component, 'Installation File', 'installation_file')
+    if hasattr(component, 'language'):
+        writer.write_text('<p><b>Language : </b>{}</p>'.format(component.language.name))
     #Ensure health and therefore status are up to date by writing health first
-    wt.writeText('<p><b>Health :</b> {}</p>'.format(component.health))
-    wt.writeAttributePara(component, 'Status', 'status')
-    if hasattr(component,'cm_location'):
-        wt.write('h2','','Configuration Management')
-        wt.writeAttributePara(component, 'CM Repository', 'cm_repository')
-        wt.writeAttributePara(component, 'CM Location', 'cm_location')
-        wt.writeAttributePara(component, 'CM File Name', 'cm_filename')
-    if hasattr(component,'notes'):
-        wt.write('h2','','Notes')
-        wt.write('p','',component.notes)
+    writer.write_text('<p><b>Health :</b> {}</p>'.format(component.health))
+    writer.write_attribute_para(component, 'Status', 'status')
+    if hasattr(component, 'cm_location'):
+        writer.write('h2', '', 'Configuration Management')
+        writer.write_attribute_para(component, 'CM Repository', 'cm_repository')
+        writer.write_attribute_para(component, 'CM Location', 'cm_location')
+        writer.write_attribute_para(component, 'CM File Name', 'cm_filename')
+    if hasattr(component, 'notes'):
+        writer.write('h2', '', 'Notes')
+        writer.write('p', '', component.notes)
 
     #Table of all (expected) deployments
-    wt.write('h2','','Deployments')
-    if len(component.deployments) == 0:
-        wt.write('p','','No documented deployments to a host')
+    writer.write('h2', '', 'Deployments')
+    if not component.deployments:
+        writer.write('p', '', 'No documented deployments to a host')
     else:
-        has_packages = (hasattr(component,'package') and len(component.package)>1)
+        has_packages = hasattr(component, 'package') and component.package
         host_names = sorted(component.deployments.keys())
-        wt.open('table')
-        wt.open('tr')
-        wt.write('th','colspan = "{}"'.format(2 if has_packages else 1),'Target')
-        for host_name in host_names: 
-            wt.writeNestedObjectLink('th','',component.deployments[host_name].host)
-        wt.close()
-        wt.open('tr')
-        wt.write('th','colspan = "{}"'.format(2 if has_packages else 1),'Supported Requirements')
-        for host_name in host_names: 
+        writer.open('table')
+        writer.open('tr')
+        writer.write('th', 'colspan = "{}"'.format(2 if has_packages else 1), 'Target')
+        for host_name in host_names:
+            writer.write_nested_object_link('th', '', component.deployments[host_name].host)
+        writer.close()
+        writer.open('tr')
+        writer.write('th', 'colspan = "{}"'.format(2 if has_packages else 1),
+                     'Supported Requirements')
+        for host_name in host_names:
             depl = component.deployments[host_name]
-            wt.open('td',component.deployments[host_name].htmlClass())
+            writer.open('td', component.deployments[host_name].htmlClass())
             for ark in sorted(depl.primary_requirements.keys()):
                 ar = depl.primary_requirements[ark]
-                wt.writeObjectLink(ar.actor,ar.uid)
+                writer.write_object_link(ar.actor, ar.uid)
             for ark in sorted(depl.secondary_requirements.keys()):
                 ar = depl.secondary_requirements[ark]
-                wt.writeObjectLink(ar.actor,"("+ar.uid+")")
-            wt.close()
-        wt.close()
-        wt.open('tr')
-        wt.open('tr')
-        wt.write('th','colspan = "{}"'.format(2 if has_packages else 1),'Deployment Location')
-        for host_name in host_names: 
-            wt.write('td',component.deployments[host_name].htmlClass(),component.deployments[host_name].locationDescription())
-        wt.close()
-        wt.write('th','colspan = "{}"'.format(2 if has_packages else 1),'Deployment State')
-        for host_name in host_names: 
-            wt.write('td',component.deployments[host_name].htmlClass(),component.deployments[host_name].status)
-        wt.close()
-        wt.open('tr')
-        wt.write('th','colspan = "{}"'.format(2 if has_packages else 1),'Functional State')
-        for host_name in host_names: 
+                writer.write_object_link(ar.actor, "(" + ar.uid + ")")
+            writer.close()
+        writer.close()
+        writer.open('tr')
+        writer.open('tr')
+        writer.write('th', 'colspan = "{}"'.format(2 if has_packages else 1), 'Deployment Location')
+        for host_name in host_names:
+            writer.write('td', component.deployments[host_name].htmlClass(),
+                         component.deployments[host_name].locationDescription())
+        writer.close()
+        writer.write('th', 'colspan = "{}"'.format(2 if has_packages else 1), 'Deployment State')
+        for host_name in host_names:
+            writer.write('td', component.deployments[host_name].htmlClass(),
+                         component.deployments[host_name].status)
+        writer.close()
+        writer.open('tr')
+        writer.write('th', 'colspan = "{}"'.format(2 if has_packages else 1), 'Functional State')
+        for host_name in host_names:
             depl = component.deployments[host_name]
-            wt.write('td','class="{}"'.format(depl.functionalHealth()),depl.functionalStatus())
-        wt.close()
+            writer.write('td', 'class="{}"'.format(
+                depl.functionalHealth()), depl.functionalStatus())
+        writer.close()
 
         if has_packages:
             for pkg in component.package:
-                wt.open('tr')
-                if pkg is component.package[0]: 
-                    wt.write('th','rowspan = "{}"'.format(len(component.package)),'Packages')
-                wt.write('td','',pkg)
+                writer.open('tr')
+                if pkg is component.package[0]:
+                    writer.write('th', 'rowspan = "{}"'.format(len(component.package)), 'Packages')
+                writer.write('td', '', pkg)
                 for host_name in host_names:
-                    if not hasattr(component.deployments[host_name],'installed_packages'):
-                        wt.write('td','class="unknown"','Unknown')
+                    if not hasattr(component.deployments[host_name], 'installed_packages'):
+                        writer.write('td', 'class="unknown"', 'Unknown')
                     elif pkg in component.deployments[host_name].installed_packages:
-                        wt.write('td','class="good"','Installed')
+                        writer.write('td', 'class="good"', 'Installed')
                     else:
-                        wt.write('td','class="degd"','Missing')
-                wt.close()
-        wt.close()
-        
+                        writer.write('td', 'class="degd"', 'Missing')
+                writer.close()
+        writer.close()
+
 
     #Table of all dependencies
-    wt.write('h2','','Dependants')
-    if len(component.dependers) == 0:
-        wt.write('p','','No other software components depend on this')
+    writer.write('h2', '', 'Dependants')
+    if not component.dependers:
+        writer.write('p', '', 'No other software components depend on this')
     else:
-        wt.open('table')
-        wt.writeText('<tr><th>Name</th><th>Type</th></tr>')
+        writer.open('table')
+        writer.write_text('<tr><th>Name</th><th>Type</th></tr>')
         for dep_name in sorted(component.dependers.keys()):
             dep = component.dependers[dep_name]
-            wt.open('tr')
-            wt.writeNestedObjectLink('td',dep.htmlClass(),dep)
-            wt.write('td',dep.htmlClass(), dep.type)
-            wt.close()
-        wt.close()
-        
+            writer.open('tr')
+            writer.write_nested_object_link('td', dep.htmlClass(), dep)
+            writer.write('td', dep.htmlClass(), dep.type)
+            writer.close()
+        writer.close()
+
     #Table of all dependencies
-    wt.write('h2','','Dependencies')
-    if len(component.dependencies) == 0:
-        wt.write('p','','Does not depend on any other software components')
+    writer.write('h2', '', 'Dependencies')
+    if component.dependencies:
+        writer.write('p', '', 'Does not depend on any other software components')
     else:
-        wt.open('table')
-        wt.writeText('<tr><th>Name</th><th>Type</th></tr>')
+        writer.open('table')
+        writer.write_text('<tr><th>Name</th><th>Type</th></tr>')
         for dep_name in sorted(component.dependencies.keys()):
             dep = component.dependencies[dep_name]
-            wt.open('tr')
-            wt.writeNestedObjectLink('td',dep.htmlClass(),dep)
-            wt.write('td',dep.htmlClass(), dep.type)
-            wt.close()
-        wt.close()
-        
+            writer.open('tr')
+            writer.write_nested_object_link('td', dep.htmlClass(), dep)
+            writer.write('td', dep.htmlClass(), dep.type)
+            writer.close()
+        writer.close()
+
     #Table of all relationships
-    wt.write('h2','','Relationships')
-    if len(component.relations) == 0:
-        wt.write('p','','Is not related to any other software components')
+    writer.write('h2', '', 'Relationships')
+    if not component.relations:
+        writer.write('p', '', 'Is not related to any other software components')
     else:
-        wt.open('table')
-        wt.writeText('<tr><th>Name</th><th>Type</th></tr>')
+        writer.open('table')
+        writer.write_text('<tr><th>Name</th><th>Type</th></tr>')
         for rel_name in sorted(component.relations.keys()):
             rel = component.relations[rel_name]
-            wt.open('tr')
-            wt.writeNestedObjectLink('td',rel.htmlClass(),rel)
-            wt.write('td',rel.htmlClass(), rel.type)
-            wt.close()
-        wt.close()
+            writer.open('tr')
+            writer.write_nested_object_link('td', rel.htmlClass(), rel)
+            writer.write('td', rel.htmlClass(), rel.type)
+            writer.close()
+        writer.close()
 
     #For CM files actually bring in the file itself
-    if isinstance(component,sitemgt.CmComponent):
+    if isinstance(component, sitemgt.CmComponent):
         svn_name = component.url()
-        
-        wt.write('h2','','File Contents')
-        wt.open('pre')
+
+        writer.write('h2', '', 'File Contents')
+        writer.open('pre')
         try:
-            file_data = subprocess.check_output('svn {} cat "{}" 2>&1'.format(auth.subversionParams(),svn_name),shell=True).decode('utf-8') 
-            wt.writeText(file_data.replace('<','&lt;').replace('>','&gt;'))
+            file_data = subprocess.check_output('svn {} cat "{}" 2>&1'.format(
+                auth.subversionParams(), svn_name), shell=True).decode('utf-8')
+            writer.write_text(file_data.replace('<', '&lt;').replace('>', '&gt;'))
         except Exception:
-            wt.writeText("Could not read contents for {}".format(svn_name))
-        wt.close()                 
+            writer.write_text("Could not read contents for {}".format(svn_name))
+        writer.close()
 
-        wt.write('h2','','File Log')
-        wt.open('pre')
+        writer.write('h2', '', 'File Log')
+        writer.open('pre')
         try:
-            log_data = subprocess.check_output('svn {} log "{}" 2>&1'.format(auth.subversionParams(),svn_name),shell=True).decode('utf-8') 
-            wt.writeText(log_data.replace('<','&lt;').replace('>','&gt;'))
+            log_data = subprocess.check_output('svn {} log "{}" 2>&1'.format(
+                auth.subversionParams(), svn_name), shell=True).decode('utf-8')
+            writer.write_text(log_data.replace('<', '&lt;').replace('>', '&gt;'))
         except Exception:
-            wt.writeText("Could not read log for {}".format(svn_name))
-        wt.close()                 
+            writer.write_text("Could not read log for {}".format(svn_name))
+        writer.close()
 
-             
 
-def makeAutomaticCheckHtml(check, english):
+def make_automatic_check_html(check, english):
     """Creates an html file for the specified component"""
-    output_filename = os.path.join(WEB_OUTPUT_DIR, check.htmlName()) 
-    wt = BodyTagWriter(output_filename, None, english + " : " + check.name) 
+    output_filename = os.path.join(WEB_OUTPUT_DIR, check.htmlName())
+    writer = BodyTagWriter(output_filename, None, english + " : " + check.name)
 
-    wt.write('h2','','Supported Requirements')
-    wt.open('table')
-    wt.writeSystemRequirementHeader()
+    writer.write('h2', '', 'Supported Requirements')
+    writer.open('table')
+    writer.write_system_requirement_header()
     for sr in sorted(check.requirements.keys()):
-        wt.writeSystemRequirementRow(check.requirements[sr])
-    wt.close()
+        writer.write_system_requirement_row(check.requirements[sr])
+    writer.close()
 
-    wt.write('h2','','Execution History')
-    wt.open('table')
-    wt.writeCheckOutcomeHeader()
+    writer.write('h2', '', 'Execution History')
+    writer.open('table')
+    writer.write_check_outcome_header()
     for outcome in reversed(check.outcomes) if check.outcomes else ():
-        wt.writeCheckOutcomeRow(outcome)
-    wt.close()
+        writer.write_check_outcome_row(outcome)
+    writer.close()
 
 
+def make_everything():
+    """Creates the entire website, removing and existing files in the target directory."""
+    for file in os.listdir(WEB_OUTPUT_DIR):
+        os.unlink(os.path.join(WEB_OUTPUT_DIR, file))
 
-
-if __name__ == '__main__':
-    
-    #First wipe out the contents of the output directory
-    for f in os.listdir(WEB_OUTPUT_DIR):
-        os.unlink(os.path.join(WEB_OUTPUT_DIR, f))
-    
     # Gather authorization for subversion
     if not auth.readFromFile():
         print("ERROR: Could not find a valid authorization in {}".format(auth.filename))
         sys.exit(1)
-    
+
     #Parse the data
     sd = sitemgt.SiteDescription(SITE_XML_FILE)
     sd.loadDeploymentStatusFromXmlFile()
 
     #Build all the list htmls for the index pane
-    makeListHtml([('User Groups',sd.user_groups),('Users',sd.users)], 'Users', 'Users.html')
-    makeListHtml([('Host Groups',sd.host_groups),('Hosts',sd.hosts)], 'Hosts and Host Groups', 'Hosts.html')
-    makeListHtml([('Capabilities',sd.capabilities)], 'Capabilities', 'Capabilities.html')
-    makeListHtml([('Applications',sd.applications)], 'Applications', 'Applications.html')
-    makeListHtml([('Config Files',sd.config_files),('Other Files',sd.other_files)], 'Files', 'Files.html')
-    makeListHtml([('Scripts',sd.scripts)], 'Scripts', 'Scripts.html')
-    makeListHtml([('Checks',sd.automatic_checks)], 'Automatic Checks', 'Checks.html')
+    make_list_html([('User Groups', sd.user_groups), ('Users', sd.users)], 'Users', 'Users.html')
+    make_list_html([('Host Groups', sd.host_groups), ('Hosts', sd.hosts)],
+                   'Hosts and Host Groups', 'Hosts.html')
+    make_list_html([('Capabilities', sd.capabilities)], 'Capabilities', 'Capabilities.html')
+    make_list_html([('Applications', sd.applications)], 'Applications', 'Applications.html')
+    make_list_html([('Config Files', sd.config_files), ('Other Files', sd.other_files)],
+                   'Files', 'Files.html')
+    make_list_html([('Scripts', sd.scripts)], 'Scripts', 'Scripts.html')
+    make_list_html([('Checks', sd.automatic_checks)], 'Automatic Checks', 'Checks.html')
 
     #Build all the summary htmls for the data pane
-    makeSummariesHtml('All Users and User Groups',[('User Groups',sd.user_groups,[],[]),('Users',sd.users,['account_type'],['Type'])], 'Users.html')
-    makeSummariesHtml('All Hosts and Host Groups',[('Host Groups',sd.host_groups,['description'],['Description']),('Hosts',sd.hosts,['ip_address','os','status','status_date'],['IP Address','OS','Status','Status Date'])], 'Hosts.html')
-    makeSummariesHtml('All Applications',[('',sd.applications,['type'],['Type'])], 'Applications.html')
-    makeSummariesHtml('All Files',[('Config Files',sd.config_files,['status'],['Status']),('Other Files',sd.other_files,['category','status'],['Category','Status'])], 'Files.html')
-    makeSummariesHtml('All Scripts', [('',sd.scripts,['language','status'],['Language','Status'])], 'Scripts.html')
-    makeCapabilitySummariesHtml(sd.capabilities)
-    makeSummariesHtml('All Automatic Checks', [('',sd.automatic_checks,['last_run','status'],['Last Run','Status'])], 'Checks.html')
+    make_summaries_html('All Users and User Groups', [
+        ('User Groups', sd.user_groups, [], []),
+        ('Users', sd.users, ['account_type'], ['Type'])], 'Users.html')
+    make_summaries_html('All Hosts and Host Groups', [
+        ('Host Groups', sd.host_groups, ['description'], ['Description']),
+        ('Hosts', sd.hosts,
+         ['ip_address', 'os', 'status', 'status_date'],
+         ['IP Address', 'OS', 'Status', 'Status Date'])], 'Hosts.html')
+    make_summaries_html('All Applications', [
+        ('', sd.applications, ['type'], ['Type'])], 'Applications.html')
+    make_summaries_html('All Files', [
+        ('Config Files', sd.config_files, ['status'], ['Status']),
+        ('Other Files', sd.other_files, ['category', 'status'], ['Category', 'Status'])
+        ], 'Files.html')
+    make_summaries_html('All Scripts', [
+        ('', sd.scripts, ['language', 'status'], ['Language', 'Status'])], 'Scripts.html')
+    make_capability_summaries_html(sd.capabilities)
+    make_summaries_html('All Automatic Checks', [
+        ('', sd.automatic_checks, ['last_run', 'status'], ['Last Run', 'Status'])], 'Checks.html')
 
     for actor in sd.users.values():
-        makeActorHtml(actor, "User", False)
+        make_actor_html(actor, "User", False)
     for actor in sd.user_groups.values():
-        makeActorHtml(actor, "User Group", True)
+        make_actor_html(actor, "User Group", True)
     for actor in sd.hosts.values():
-        makeActorHtml(actor, "Host", False)
+        make_actor_html(actor, "Host", False)
     for actor in sd.host_groups.values():
-        makeActorHtml(actor, "Host Group", True)
+        make_actor_html(actor, "Host Group", True)
 
     for capability in sd.capabilities:
-        makeCapabilityHtml(capability)
+        make_capability_html(capability)
 
     for component in sd.applications.values():
-        makeComponentHtml(component,"Application")
+        make_component_html(component, "Application")
     for component in sd.config_files.values():
-        makeComponentHtml(component,"Config File")
+        make_component_html(component, "Config File")
     for component in sd.other_files.values():
-        makeComponentHtml(component,"Other File")
+        make_component_html(component, "Other File")
     for component in sd.scripts.values():
-        makeComponentHtml(component,"Script")
+        make_component_html(component, "Script")
 
     for check in sd.automatic_checks.values():
-        makeAutomaticCheckHtml(check,"Check")
-    
-    
-    
+        make_automatic_check_html(check, "Check")
+
+if __name__ == '__main__':
+    make_everything()
