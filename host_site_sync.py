@@ -146,7 +146,7 @@ def interactively_correct(host):
                 if resp == 'c':
                     return
                 elif resp == 'y':
-                    run_command('aptitude purge {}'.format(pkg[0]))
+                    run_command(['aptitude', 'purge', pkg[0]])
 
     # For a better user experience, correct problems by failure mode
     status = InteractiveStatus()
@@ -172,7 +172,7 @@ def correct_repo_application(depl, status):
     """Interacts with the user to try and correct configuration problems for the supplied
     deployment of a RepoApplication on host. Updates the supplied InteractiveStatus if needed."""
     if not isinstance(depl.component, RepoApplication):
-        raise Exception('rrection method called on wrong component type')
+        raise Exception('Correction method called on wrong component type')
 
     # Don't attempt to do any repo applications outside of the default repository.
     name = depl.component.name
@@ -186,14 +186,14 @@ def correct_repo_application(depl, status):
         if resp == 'c':
             status.cancelled = True
         elif resp == 'y':
-            run_command('aptitude install {}'.format(pkg))
+            run_command(['aptitude', 'install', pkg])
 
 
 def correct_cm_component(depl, status):
     """Interacts with the user to try and correct configuration problems for the supplied
     deployment of a CM component on host. Updates the supplied InteractiveStatus if needed."""
     if not isinstance(depl.component, CmComponent):
-        raise Exception('rrection method called on wrong component type')
+        raise Exception('Correction method called on wrong component type')
 
     # If the input contains errors we could be asked to deploy a component without
     # having a deployment path
