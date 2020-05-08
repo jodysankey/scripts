@@ -132,6 +132,8 @@ class Link(object):
         """Physically creates the symlink, replacing any existing file."""
         if path.exists(self.location):
             os.remove(self.location)
+        elif not path.exists(path.dirname(self.location)):
+            os.makedirs(path.dirname(self.location), mode=0o770)
         os.symlink(self.target, self.location)
 
     def delete(self):
@@ -193,8 +195,9 @@ def _validate_repo(repo, args):
             _fatal('git dir at {} not present, no further checks possible'.format(repo.location), 0)
         else:
             # Even in auto mode ask to create the clone directory. Its a big deal.
-            _user_approval('Clone {} to {}'.format(repo.remote_git, repo.location),
+            _user_approval('Clone {} to {}'.format(repo.remote_ssh, repo.location),
                            no_fn=lambda: sys.exit(0))
+            repo.create()
     repo_valid = repo.is_valid()
     if not repo_valid[0]:
         _fatal('git clone at {} not valid: {}'.format(repo.location, repo_valid[1]), 3)
@@ -221,7 +224,7 @@ def _restitch_link(link, args):
             _act('Creating link {}'.format(link))
             link.create()
         elif args.mode == 'manual':
-            _user_approval('Create link {}'.format(link), yes_fn=link.create())
+            _user_approval('Create link {}'.format(link), yes_fn=link.create)
         return False
 
     if path.islink(link.location):

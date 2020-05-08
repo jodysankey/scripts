@@ -70,7 +70,7 @@ def add_cm_working_file(source_file, target):
         shutil.copy2(source_file, target)
     except Exception as ex:
         print('Exception copying file: {}'.format(ex))
-        return
+        return False
     return run_command(['git', 'add', target], cwd=CM_WORKING_DIR)
 
 
@@ -81,7 +81,7 @@ def update_cm_working_file(source_file, target):
         shutil.copyfile(source_file, target)
     except Exception as ex:
         print('Exception copying file: {}'.format(ex))
-        return
+        return False
     return run_command(['git', 'add', target], cwd=CM_WORKING_DIR)
 
 
@@ -145,7 +145,7 @@ def interactively_correct(host):
                 resp = prompt('Purge {} ({})?'.format(pkg[0], pkg[1]), ['Yes', 'No', 'Cancel'])
                 if resp == 'c':
                     return
-                elif resp == 'y':
+                if resp == 'y':
                     run_command(['aptitude', 'purge', pkg[0]])
 
     # For a better user experience, correct problems by failure mode
@@ -231,17 +231,19 @@ def correct_cm_component(depl, status):
             if resp == 'c':
                 status.cancelled = True
                 return
-            elif resp == 'd':
-                print('DIFF (< is repository file, > is local file)')
-                subprocess.call(['diff', cm_working_path, local_path])
-            elif resp == 'l':
+            if resp == 's':
+                return
+            if resp == 'l':
                 if update_cm_working_file(local_path, cm_working_path):
                     status.cm_changes += 1
                 return
-            elif resp == 'r':
+            if resp == 'r':
                 print('<<Copy {} to {}>>'.format(cm_working_path, local_path))
                 shutil.copy2(cm_working_path, local_path)
                 return
+            if resp == 'd':
+                print('DIFF (< is repository file, > is local file)')
+                subprocess.call(['diff', cm_working_path, local_path])
 
 
 def create_parser():
