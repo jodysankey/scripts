@@ -13,9 +13,11 @@
 #========================================================
 
 
+import os
 import sys
 import scan_core
 
+SCAN_PATH = os.path.expanduser('~/tmp/scan') 
 
 def print_option_set(option_set, leader):
     """Print a line for each option in the set, prefixed with leader"""

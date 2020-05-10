@@ -5,12 +5,17 @@
 # with the software components defined by a central
 # site definition
 #========================================================
-# Copyright Jody M Sankey 2010
+# Copyright Jody M Sankey 2010-2020
 #========================================================
 # AppliesTo: linux
 # RemoveExtension: True
 # PublicPermissions: True
 #========================================================
+
+# TODO: Currently having root stage changes in git isn't working well, 
+#       messes up ownership on index file in .git and commit fails. Can effectively
+#       submit running as root on oberon, but may be better to delegate down to
+#       jody for all the git operations (see provision_kubuntu for how.)
 
 import argparse
 import os
@@ -55,7 +60,7 @@ def run_command(command, cwd=None):
     #print('<<{}>>'.format(command))
     ret_code = subprocess.call(command, cwd=cwd, stderr=subprocess.DEVNULL)
     if ret_code != 0:
-       print('<<Error: {} returned {}>>'.format(' '.join(command), ret_code))
+        print('<<Error: {} returned {}>>'.format(' '.join(command), ret_code))
     return ret_code == 0
 
 
@@ -68,7 +73,7 @@ def add_cm_working_file(source_file, target):
             os.makedirs(directory)
         print('<<Copy2 {} to {}>>'.format(source_file, target))
         shutil.copy2(source_file, target)
-    except Exception as ex:
+    except OSError as ex:
         print('Exception copying file: {}'.format(ex))
         return False
     return run_command(['git', 'add', target], cwd=CM_WORKING_DIR)
@@ -79,7 +84,7 @@ def update_cm_working_file(source_file, target):
     print('<<Copy {} to {}>>'.format(source_file, target))
     try:
         shutil.copyfile(source_file, target)
-    except Exception as ex:
+    except OSError as ex:
         print('Exception copying file: {}'.format(ex))
         return False
     return run_command(['git', 'add', target], cwd=CM_WORKING_DIR)
