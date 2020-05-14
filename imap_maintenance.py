@@ -1,8 +1,8 @@
 #!/usr/bin/python3
-#========================================================
-# Python script to perform a variety of maintenance
-# operations on an IMAP account as specified in a
-# supplied configuration file
+
+"""Script to perform a variety of maintenance operations on an
+IMAP account as specified in a supplied configuration file."""
+
 #========================================================
 # Copyright Jody M Sankey 2017
 #========================================================

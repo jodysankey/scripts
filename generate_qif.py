@@ -1,16 +1,17 @@
 #!/usr/bin/python3
-#========================================================
-# Python script  to translate a Standard Bank formatted
-# CSV file into QIF suitable for import to GnuCash.
-#========================================================
-# CSV file should be supplied as a parameter. Mapping
-# definitions for each bank account are stored in a XML
-# file along with the signature for detecting that account
-# and the output filename (which is always placed in the
-# same location as the input). For convenience a set of
-# possible locations for each XML files is hardcoded in
-# this script, rather than the cleaner solution of
-# defining them in an environment variable
+
+"""Python script  to translate a Standard Bank formatted
+CSV file into QIF suitable for import to GnuCash.
+
+CSV file should be supplied as a parameter. Mapping
+definitions for each bank account are stored in a XML
+file along with the signature for detecting that account
+and the output filename (which is always placed in the
+same location as the input). For convenience a set of
+possible locations for each XML files is hardcoded in
+this script, rather than the cleaner solution of
+defining them in an environment variable."""
+
 #========================================================
 # Copyright Jody M Sankey 2010-2013
 #========================================================

@@ -1,8 +1,8 @@
 #!/usr/bin/python3
-#========================================================
-# Python script for linux to dump a list of hashes for
-# all files in a set of directories. The output is sorted
-# by hash.
+
+"""Script for linux to dump a list of hashes for all files in
+a set of directories. The output is sorted by hash."""
+
 #========================================================
 # Copyright Jody M Sankey 2019
 #========================================================

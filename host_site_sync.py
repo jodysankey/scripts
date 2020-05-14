@@ -12,7 +12,7 @@
 # PublicPermissions: True
 #========================================================
 
-# TODO: Currently having root stage changes in git isn't working well, 
+# TODO: Currently having root stage changes in git isn't working well,
 #       messes up ownership on index file in .git and commit fails. Can effectively
 #       submit running as root on oberon, but may be better to delegate down to
 #       jody for all the git operations (see provision_kubuntu for how.)

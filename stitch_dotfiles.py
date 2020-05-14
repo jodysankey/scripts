@@ -24,9 +24,9 @@ import sys
 
 # Map from username to upstream repo
 REMOTE_URLS = {'jody': {
-                  'https': 'https://github.com/jodysankey/dotfiles.git',
-                  'ssh': 'git@github.com:jodysankey/dotfiles.git',
-              }}
+    'https': 'https://github.com/jodysankey/dotfiles.git',
+    'ssh': 'git@github.com:jodysankey/dotfiles.git',
+    }}
 
 # Path (relative to the user's home directory) for the git clone
 CLONE_PATH = 'git-dotfiles'
@@ -61,12 +61,13 @@ class Repo(object):
             return (False, 'Path does not exist')
         elif not path.isdir(self.location):
             return (False, 'Path is not a directory')
-        elif subprocess.check_output(['git', 'rev-parse', '--is-inside-work-tree'],
-                                     cwd=self.location).decode('utf-8').strip() != 'true':
+        elif subprocess.check_output(
+                ['git', 'rev-parse', '--is-inside-work-tree'], cwd=self.location
+                ).decode('utf-8').strip() != 'true':
             return (False, 'Path is not a git working directory')
-        elif (subprocess.check_output(['git', 'remote', 'get-url', 'origin', '--push'],
-                                     cwd=self.location).decode('utf-8').strip()
-                                     not in [self.remote_https, self.remote_ssh]):
+        elif (subprocess.check_output(
+                ['git', 'remote', 'get-url', 'origin', '--push'], cwd=self.location
+                ).decode('utf-8').strip() not in [self.remote_https, self.remote_ssh]):
             return (False, 'Path is not using the expected remote repository')
         else:
             return (True, 'Path is a valid clone of the expected repository')
