@@ -1,9 +1,9 @@
 #!/usr/bin/python3
-#========================================================
-# Python script for debian based linux distributions to
-# determine or enforce synchronization of the local host
-# with the software components defined by a central
-# site definition
+
+"""Script for debian based linux distributions to determine or enforce
+synchronization of the local host with the software components defined
+by a central site definition."""
+
 #========================================================
 # Copyright Jody M Sankey 2010-2020
 #========================================================
@@ -12,16 +12,12 @@
 # PublicPermissions: True
 #========================================================
 
-# TODO: Currently having root stage changes in git isn't working well,
-#       messes up ownership on index file in .git and commit fails. Can effectively
-#       submit running as root on oberon, but may be better to delegate down to
-#       jody for all the git operations (see provision_kubuntu for how.)
-
 import argparse
 import os
 import shutil
 import socket
 import subprocess
+from subprocess import DEVNULL
 import sys
 
 import git_validation
@@ -36,6 +32,8 @@ FAILURE_MODES = (('Missing', 'are not installed'),
                  ('ModifiedLocally', 'are newer than the CM copy'),
                  ('OutOfDate', 'are older than the CM copy'),
                  ('Unknown', 'are in an indeterminate state'))
+
+CM_OWNER_UID = os.stat(os.path.join(CM_WORKING_DIR, '.git')).st_uid
 
 
 class InteractiveStatus(object):
@@ -55,10 +53,18 @@ def prompt(text, options):
     return response[0].lower()
 
 
-def run_command(command, cwd=None):
-    """Runs the specified command and returns True on success."""
+def run_command(command, cwd=None, uid=None):
+    """Runs the specified command, optionally in the specified working directory and as the
+    specified user, and returns True on success."""
     #print('<<{}>>'.format(command))
-    ret_code = subprocess.call(command, cwd=cwd, stderr=subprocess.DEVNULL)
+
+    def run_as_user():
+        """Subprocess delegation function."""
+        os.setgid(uid)
+        os.setuid(uid)
+
+    ret_code = (subprocess.call(command, cwd=cwd, preexec_fn=run_as_user, stderr=DEVNULL)
+                if uid else subprocess.call(command, cwd=cwd, stderr=DEVNULL))
     if ret_code != 0:
         print('<<Error: {} returned {}>>'.format(' '.join(command), ret_code))
     return ret_code == 0
@@ -76,7 +82,7 @@ def add_cm_working_file(source_file, target):
     except OSError as ex:
         print('Exception copying file: {}'.format(ex))
         return False
-    return run_command(['git', 'add', target], cwd=CM_WORKING_DIR)
+    return run_command(['git', 'add', target], cwd=CM_WORKING_DIR, uid=CM_OWNER_UID)
 
 
 def update_cm_working_file(source_file, target):
@@ -87,7 +93,7 @@ def update_cm_working_file(source_file, target):
     except OSError as ex:
         print('Exception copying file: {}'.format(ex))
         return False
-    return run_command(['git', 'add', target], cwd=CM_WORKING_DIR)
+    return run_command(['git', 'add', target], cwd=CM_WORKING_DIR, uid=CM_OWNER_UID)
 
 
 def commit_cm_changes(status):
@@ -96,7 +102,7 @@ def commit_cm_changes(status):
         message = input(('Please enter commit message for the {} staged files (or return to skip):'
                          ' ').format(status.cm_changes))
         if message:
-            if run_command(['git', 'commit', '-m', message], cwd=CM_WORKING_DIR):
+            if run_command(['git', 'commit', '-m', message], cwd=CM_WORKING_DIR, uid=CM_OWNER_UID):
                 print('Now please push this commit to the upstream on the local server')
 
 
@@ -300,7 +306,7 @@ def perform_sync(parsed_args):
 
     # If root, fetch new package definitions
     if is_root:
-        subprocess.call(['aptitude', 'update'], stdout=subprocess.DEVNULL)
+        subprocess.call(['aptitude', 'update'], stdout=DEVNULL)
 
     # Build a site description object and check we're in it
     site_desc = sitemgt.SiteDescription(SITE_XML_FILE)
