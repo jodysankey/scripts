@@ -26,6 +26,7 @@ from sitemgt.software import RepoApplication, NonRepoApplication, CmComponent
 from sitemgt.paths import SITE_XML_FILE, CM_WORKING_DIR, CM_UPSTREAM_DIR
 
 
+
 FAILURE_MODES = (('Missing', 'are not installed'),
                  ('PartiallyInstalled', 'have some but not all packages installed'),
                  ('NotConfigured', 'are present locally but not registered in CM'),
