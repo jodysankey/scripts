@@ -11,6 +11,7 @@ see the command line options."""
 # This software may be modified and distributed under the terms
 # of the MIT license. See the LICENCE.md file for details.
 #==============================================================
+# AppliesTo: linux
 # RemoveExtension: True
 # PublicPermissions: True
 #==============================================================
