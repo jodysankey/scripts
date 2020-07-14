@@ -34,7 +34,7 @@ import astronomy
 
 #matplotlib.use('Agg') # Use before the pyplot import to run on a machine without graphical UI
 
-VERSION = '0.1.0'
+VERSION = '0.1.1'
 
 BASE_URL = 'https://tidesandcurrents.noaa.gov/api/datagetter'
 
@@ -535,7 +535,7 @@ class Plot:
         # Manually position the axes, adding padding to account for the axis ticks, labels, and
         # titles that fall outside the rectangle used for positioning.
         axes_left_pad, axes_bottom_pad = 0.35, 0.4
-        axes_width, axes_height = 0.77, 0.35
+        axes_width, axes_height = 0.75, 0.35
         axes_left = (MARGIN + axes_left_pad) / LETTER_W
         axes_bottoms = [(MARGIN + axes_bottom_pad) / LETTER_H,
                         (1.5 * MARGIN + 2 * axes_bottom_pad) / LETTER_H + axes_height]
@@ -551,9 +551,10 @@ class Plot:
             axes.xaxis.set_minor_formatter(matplotlib.dates.DateFormatter('%H%M', tz=TIMEZONE))
             axes.xaxis.set_major_formatter(matplotlib.dates.DateFormatter('%H%M', tz=TIMEZONE))
             axes.tick_params(which='both', axis='x', length=4, labelrotation=90)
+            axes.tick_params(which='both', axis='y', right=True, labelright=True)
             axes.grid(which='minor', axis='both', linestyle='-', color='#cccccc')
             axes.grid(which='major', axis='both', linestyle='-', color='#666666')
-            axes.legend(bbox_to_anchor=(1.02, 0), borderaxespad=0., frameon=False)
+            axes.legend(bbox_to_anchor=(1.04, -0.05), borderaxespad=0., frameon=False)
 
         # Add title and sun/moon information
         self.add_titles()
@@ -564,6 +565,16 @@ class Plot:
 # https://tidesandcurrents.noaa.gov/map/index.html
 # https://tidesandcurrents.noaa.gov/map/index.html?type=CurrentPredictions
 LOCATIONS = {
+    'test' : {
+        'name': 'SF Bay',
+        'description': 'Cruising in the Central Bay',
+        'tide_stations': [
+            TideStation('San Francisco', 9414290, 'black', annotate=True),
+        ],
+        'current_stations': [
+            CurrentStation('0.46nm E of Golden Gate (30ft)', 'SFB1203', 18, 'black', annotate=True),
+        ]
+    },
     'bay' : {
         'name': 'SF Bay',
         'description': 'Cruising in the Central Bay',
