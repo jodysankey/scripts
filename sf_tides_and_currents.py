@@ -20,6 +20,7 @@ import argparse
 import datetime as dt
 import math
 import os.path
+import re
 import sys
 import tempfile
 import textwrap
@@ -59,6 +60,8 @@ ORANGE = '#f39c12'
 
 ONE_DAY = dt.timedelta(days=1)
 SIX_MIN = dt.timedelta(minutes=6)
+SPREADSHEET_ZERO_DATE = dt.datetime(1899, 12, 30, 0, 0, 0, 0, TIMEZONE)
+SECONDS_PER_DAY = ONE_DAY.total_seconds()
 
 LETTER_W = 11
 LETTER_H = 8.5
@@ -369,6 +372,19 @@ class DataSet:
         return output
 
 
+def generate_tide_csv(dataset, path):
+    """Creates a CSV file of the tide date in the supplied dataset at path."""
+    with open(path, "w") as f:
+
+        for tide in sorted(dataset.tides, key=lambda tide: tide['station'].name):
+            station = tide['station'].name
+            data = (tide['high_low'] +
+                    [(tup[0], 'hour', tup[1]) for tup in tide['periodic'] if tup[0].minute == 0])
+            for tup in data:
+                # Fractional day as used by most spreadsheets.
+                spreadsheet_date = (tup[0] - SPREADSHEET_ZERO_DATE).total_seconds() / SECONDS_PER_DAY
+                f.write('{},{},{},{}\n'.format(station, tup[1], spreadsheet_date, tup[2]))
+
 
 def annotate_high_low(axes, text, datetime, high_low, height, color):
     """Annotates a high or low tide on the supplied axes, being smart about positioning."""
@@ -625,12 +641,19 @@ LOCATIONS = {
     },
 }
 
+
+# Define a fixed set of stations used for the anchoring CSV output. Color is not used.
+ANCHOR_STATIONS = [
+    TideStation('San Francisco', 9414290, 'black'),
+    TideStation('Point Reyes', 9415020, GREEN),
+    TideStation('Pillar Point Harbor', 9414131, BLUE),
+    TideStation('Sausalito', 9414806, '#e67e22'),
+]
+
 # Additional stations not currently used.
 #        TideStation('Berkeley', 9414816, '#e74c3c'),
-#        TideStation('Sausalito', 9414806, '#e67e22'),
 #        TideStation('Redwood City', 9414523, '#3498db'),
 #        CurrentStation('0.5nm N of Alcatraz (6ft)', 'SFB1211', 22, '#e67e22'),
-
 
 def create_parser():
     """Creates the definition of the expected command line flags."""
@@ -642,6 +665,16 @@ def create_parser():
             # this is the RawTextHelpFormatter._split_lines
             return argparse.HelpFormatter._split_lines(self, text, width)
 
+    def _parse_date(date_str):
+        if date_str == 'today':
+            return dt.date.today()
+        if date_str == 'tomorrow':
+            return dt.date.today() + ONE_DAY
+        if re.match(r'^\d{8}$', date_str):
+            return dt.date.fromisoformat('{}-{}-{}'.format(
+                date_str[:4], date_str[4:6], date_str[6:]))
+        return dt.date.fromisoformat(date_str)
+
     parser = argparse.ArgumentParser(
         description='Script to plot NOAA tide and current data for SF Bay area along with basic '
                     'information for the sun and moon.',
@@ -650,17 +683,20 @@ def create_parser():
     parser.add_argument('-o', '--output_dir', action='store', metavar='DIR',
                         default=tempfile.gettempdir(), help="Directory for output files.")
     parser.add_argument('-d', '--date', action='store', metavar='YYYY-MM-DD', required=True,
-                        type=dt.date.fromisoformat,
-                        help="First date to calculate, e.g. 2020-12-15 for Christmas 2020")
+                        type=_parse_date,
+                        help="First date to calculate, e.g. 2020-12-15 for Christmas 2020. "
+                             "'today' and 'tomorrow' are also accepted.")
     parser.add_argument('-n', '--num_days', action='store', default=1, type=int,
                         help="Number of days to calculate, defaults to 1. A separate plot will "
                              "be generated for each day.")
-    parser.add_argument('-l', '--location', action='append', required=True,
+    parser.add_argument('-l', '--location', action='append',
                         choices=LOCATIONS.keys(),
                         help="R|Sets of tide and current stations to include:\n" +
                         "\n".join(['  {} - {}'.format(k, LOCATIONS[k]['description'])
                                    for k in LOCATIONS]) +
                         "\nMay be supplied multiple times for multiple locations.")
+    parser.add_argument('-a', '--anchor', action='store_true',
+                        help="Output a CSV file of tides at standard anchoring locations.")
     return parser
 
 
@@ -670,17 +706,18 @@ def main():
     start_date = args.date
     end_date = start_date + dt.timedelta(days=args.num_days-1)
 
+    locations = args.location if args.location else []
     try:
         datasets = [DataSet(LOCATIONS[loc]['name'],
                             start_date, end_date,
                             LOCATIONS[loc]['tide_stations'],
-                            LOCATIONS[loc]['current_stations']) for loc in args.location]
+                            LOCATIONS[loc]['current_stations']) for loc in locations]
     except RequestError as err:
         print(err)
         sys.exit(1)
 
     Plot.set_defaults()
-    for (dataset, location_abbreviation) in zip(datasets, args.location):
+    for (dataset, location_abbreviation) in zip(datasets, locations):
         for date in [start_date + dt.timedelta(days=i) for i in range(args.num_days)]:
             plot = Plot(dataset, date)
             plot.create_figure()
@@ -689,6 +726,12 @@ def main():
                 '{}_tides_currents_{}.pdf'.format(location_abbreviation, date.strftime('%Y%m%d')))
             plt.savefig(path, format='pdf', metadata=plot.properties)
             print('Wrote ' + path)
+    if args.anchor:
+        dataset = DataSet('anchoring', start_date, end_date, ANCHOR_STATIONS, [])
+        path = os.path.join(args.output_dir, 'anchoring_{}_to_{}.csv'.format(
+            start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d')))
+        generate_tide_csv(dataset, path)
+        print('Wrote ' + path)
 
 
 if __name__ == '__main__':
