@@ -59,16 +59,16 @@ def _latest_ymd_in_directory(directory):
 
 def _copy_or_link_file(out_dir, in_dir, existing_dir, filename):
     """Builds an output directory in out_dir, containing all files in
-    in_dir. If a file of the same name exsits in esisting_dir it will
+    in_dir. If a file of the same name exists in existing_dir it will
     be hardlinked, if not the file will be copied from in_dir.
     existing_dir may be None, in which case all files will be copied."""
     out_file = path.join(out_dir, filename)
     in_file = path.join(in_dir, filename)
-    existing_file = path.join(existing_dir, filename) if existing_dir else None
+    existing_file = None if existing_dir is None else path.join(existing_dir, filename)
 
     # TODO: A bit more fault tolerance here
     # Note archives are touch'ed each date they are still accurate, so don't want to
-    # use modifiction time as change detector
+    # use modification time as change detector
     if (existing_file and path.exists(existing_file) and
             path.getsize(existing_file) == path.getsize(in_file)):
         _log_debug('   Hardlinking {} to {}'.format(existing_file, out_file))
@@ -85,7 +85,7 @@ def backup_user_archives(backup_dir, in_dir):
     if not path.exists(in_dir):
         _log_warning('Input directory {} did not exist'.format(in_dir))
         return False
-    elif not path.exists(backup_dir):
+    if not path.exists(backup_dir):
         _log_warning('Backup directory {} did not exist'.format(backup_dir))
         return False
 
@@ -94,9 +94,9 @@ def backup_user_archives(backup_dir, in_dir):
     if path.exists(this_backup_dir):
         _log_info("Today's backup already exists " + this_backup_dir)
         return True
-    else:
-        _log_info("Creating backup directory " + this_backup_dir)
-        os.mkdir(this_backup_dir)
+
+    _log_info("Creating backup directory " + this_backup_dir)
+    os.mkdir(this_backup_dir)
 
     for in_current, dirs, files in os.walk(in_dir, topdown=True):
         # Copy/link the files, create the directories.
@@ -113,6 +113,7 @@ def backup_user_archives(backup_dir, in_dir):
                 if _dir in EXCLUDE_DIRS:
                     dirs.remove(_dir)
                     _log_info('Skipping excluded dir ' + _dir)
+    return True
 
 
 def build_parser():

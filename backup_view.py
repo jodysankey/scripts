@@ -80,7 +80,7 @@ def print_grid(classdir):
 def print_archives(classdir):
     """print a grid of information for all archives ordered by classification and volume"""
     archives = {volume: {protection: [] for protection in PROTECTIONS} for volume in VOLUMES}
-    for archive in classdir.descendantRoots():
+    for archive in classdir.descendant_roots():
         archives[archive.volume][archive.protection].append(archive)
 
     cells = [[Cell(heading) for heading in ('Protection', 'Volume', 'Name', 'FileCount', 'Size',
@@ -112,9 +112,8 @@ def _cell_for_totals(archives, files, size, color=WHITE):
     """Returns a new cell object to describe a quantity of files and archives."""
     if archives == 0:
         return Cell('-', color=GREY)
-    else:
-        return Cell('\n'.join((_pluralize(archives, 'archive'), _pluralize(files, 'file'),
-                               _human_size(size))), color=color)
+    return Cell('\n'.join((_pluralize(archives, 'archive'), _pluralize(files, 'file'),
+                           _human_size(size))), color=color)
 
 
 def _list_row(class_dir, would_hide_children):
