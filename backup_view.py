@@ -10,8 +10,6 @@ directory structure, as determined by .classify files."""
 # PublicPermissions: True
 #========================================================
 
-# TODO(jody): Move the basedir on create login inside classifydir (what does this mean?)
-
 import collections
 import os
 import operator
@@ -28,22 +26,85 @@ RESET_COLOR = '\033[m'
 LEADER = '  '
 MAX_EXTRA_DEPTH = 100
 
+
+class ClassifiedDirRow:
+    """Defines a single row in a summary of ClassifiedDirectories."""
+    _last_archive_name = None
+
+    def __init__(self, classdir, would_hide_children):
+        """Creates a new row for the supplied classified directory."""
+        pad = LEADER * classdir.depth
+
+        self.path = pad + classdir.base_name
+        if would_hide_children and classdir.children:
+            self.path += " ..."     # indicates there may be are more directories not shown
+
+        self.total_size = ('' if classdir.size is None
+                           else (pad + _human_size(classdir.total_size())))
+        self.archive_size = (_human_size(classdir.archive_size())
+                             if classdir.is_archive_root() and classdir.archive_size()
+                             else '')
+
+        self.archive_name = classdir.archive_root().name if classdir.archive_root() else ''
+        self.is_continuation = (self.archive_name == ClassifiedDirRow._last_archive_name)
+        ClassifiedDirRow._last_archive_name = self.archive_name
+
+        if not self.archive_name:
+            self.volume_color = self.protection_color = GREY
+            self.protection = self.volume = '-'
+        else:
+            self.protection_color = classdir.protection_color()
+            self.volume_color = classdir.volume_color()
+            self.protection = classdir.protection.upper()
+            self.volume = classdir.volume.upper()
+
+    def column_widths(self):
+        """Returns a list of the widths needed for each output column."""
+        return [len(x) for x in (self.path, self.archive_name, self.archive_size,
+                                 self.protection, self.volume, self.total_size)]
+
+    def output(self, column_widths):
+        """Returns an output string padding to the supplied column widths."""
+        fmt = "{{}}{{:<{}s}}  {{:^{}s}} {{:^{}s}}  {{:^{}s}} {{}}{{:^{}s}} {{}}".format(
+            *column_widths[0:5])
+        if self.is_continuation:
+            return fmt.format(self.protection_color, self.path, _ditto(self.archive_name), '',
+                              _ditto(self.protection), self.volume_color, _ditto(self.volume),
+                              self.total_size)
+        return fmt.format(self.protection_color, self.path, self.archive_name, self.archive_size,
+                          self.protection, self.volume_color, self.volume, self.total_size)
+
+
 def print_summary(classdir, include_undefined, extra_levels):
     """Print a nested tree of all directories given a ClassifiedDir object."""
-    max_depth = classdir.deepest_explicit + extra_levels
-    data = []
-    for desc in (desc for desc in classdir.descendants() if
-                 desc.depth <= max_depth and desc.recursion_depth <= extra_levels
-                 and (include_undefined or desc.deepest_explicit >= 0)):
-        at_recursion_limit = desc.recurse and desc.recursion_depth == extra_levels
-        data.append(_list_row(desc, desc.depth == max_depth or at_recursion_limit))
-    if not data:
+    rows = []
+
+    def is_eligible(classdir):
+        """Returns True if the supplied is eligible to include in the output. i.e. either:
+        * Part of an archive and within the max number of levels from the root of thier archive
+        * Part of an archive and contain different archives or attenuations
+        * (if undefined is enabled) Not part of an archive but contain archives
+        * (if undefined is enabled) Not part of an archive because it was explicitly excluded to end
+          a higher level recursion."""
+        if classdir.archive_root() is not None:
+            if classdir.recursion_depth <= extra_levels: return True
+            if list(classdir.descendant_roots()): return True
+            if list(classdir.descendant_attenuations()): return True
+        elif include_undefined:
+            if list(classdir.descendant_roots()): return True
+            if classdir.is_attenuation(): return True
+        return False
+
+    for desc in (desc for desc in classdir.descendants() if is_eligible(desc)):
+        would_hide_children = ((desc.recurse and desc.recursion_depth == extra_levels) or
+                               (desc.status == 'explicit' and desc.volume != 'none'))
+        rows.append(ClassifiedDirRow(desc, would_hide_children))
+    if not rows:
         print("NO SUITABLE DIRECTORIES WERE FOUND")
     else:
-        widths = [max([len(x) for x in y]) for y in zip(*data)]
-        fmt = "{{}}{{:<{}s}}  {{:^{}s}}  {{:^{}s}} {{}}{{:^{}s}} {{}}".format(*widths[1:5])
-        for datum in data:
-            print(fmt.format(*datum))
+        widths = [max(z) for z in zip(*[r.column_widths() for r in rows])]
+        for row in rows:
+            print(row.output(widths))
         print(RESET_COLOR)
 
 
@@ -153,7 +214,6 @@ def _pluralize(number, singular_text):
 
 def _human_size(size_bytes):
     """Return number of bytes rounded to a sensible scale."""
-    # TODO(jody): put this in a standard library somewhere
     size = size_bytes
     for unit in ['B', 'kB', 'MB', 'GB', 'TB']:
         if size < 10 and unit != 'B ':
