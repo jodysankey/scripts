@@ -53,6 +53,11 @@ class MusicDirectory:
         return sum([os.path.getsize(f) for f in self.abs_files])
    
 
+def sanitize(inp):
+    """Removes the special characters that ADB fails to handle even with escaping."""
+    return inp.replace('"', '').replace('?', '').replace(':', '')
+
+
 def sizeofFmt(num):
     for x in ['bytes','KB','MB','GB','TB']:
         if num < 1024.0:
@@ -65,7 +70,7 @@ def buildAllMusicDirectories():
     music_dirs = []
     for root, dirs, files in os.walk(MUSIC_ROOT):
         #Only process leaf directories with files
-        if files and not dirs:
+        if files and not dirs and not os.path.basename(root).startswith('.'):
             music_dirs.append(MusicDirectory(os.path.relpath(root, MUSIC_ROOT)))
         elif dirs:
             dirs.sort()
@@ -78,8 +83,12 @@ def buildAllAndroidDirectories():
     unvisited = [""]
     while len(unvisited) > 0:
         current = unvisited.pop(0)
-        contents = subprocess.check_output(['adb', 'shell', 'ls', '-F', os.path.join(ANDROID_ROOT, current)]).decode("utf-8").split("\n")
-        unvisited.extend([os.path.join(current, ln.strip()[2:]) for ln in contents if ln.startswith("d ")])
+        current_abs = os.path.join(ANDROID_ROOT, current)
+        contents = subprocess.check_output(
+            ['adb', 'shell', 'ls', '-F', '"{}"'.format(current_abs)]
+            ).decode("utf-8").split("\n")
+        unvisited.extend([os.path.join(current, ln.strip()[:-1])
+                          for ln in contents if ln.endswith("/")])
         if current != "": android_dirs.append(current)
 
 def markExcludedUsingFile(exclusion_file_name):   
@@ -151,15 +160,16 @@ def syncMusicDirectories():
     Directory contents are not checked for consistency"""
     unused_android_set = set(android_dirs)
     for music_dir in (x for x in music_dirs if x.included):
-        if music_dir.rel_dir not in unused_android_set:
-            dest = os.path.join(ANDROID_ROOT, music_dir.rel_dir)
-            print("Creating {} ...".format(dest))
-            subprocess.check_call(['adb', 'shell', 'mkdir', '-p', dest])
+        if sanitize(music_dir.rel_dir) not in unused_android_set:
+            dest_dir = os.path.join(ANDROID_ROOT, sanitize(music_dir.rel_dir))
+            print("Creating {} ...".format(dest_dir))
+            subprocess.check_call(['adb', 'shell', 'mkdir', '-p', r'"{}"'.format(dest_dir)])
             for f in music_dir.abs_files:
-                print("  Copying {} ...   ".format(f), end="")
+                dest_file = sanitize(os.path.join(dest_dir, os.path.relpath(f, music_dir.abs_dir)))
+                #print("  Copying {} to {} ...   ".format(f, dest_file))
                 sys.stdout.flush()
-                subprocess.check_call(['adb', 'push', f, os.path.join(dest,os.path.relpath(f, music_dir.abs_dir))])
-        used_dir = music_dir.rel_dir
+                subprocess.check_call(['adb', 'push', f, dest_file])
+        used_dir = sanitize(music_dir.rel_dir)
         while used_dir != '':
             unused_android_set.discard(used_dir)
             used_dir = os.path.split(used_dir)[0]
