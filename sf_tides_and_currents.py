@@ -27,6 +27,7 @@ import textwrap
 
 from dateutil import tz
 import matplotlib
+from matplotlib.backends.backend_pdf import PdfPages
 import matplotlib.pyplot as plt
 import matplotlib.dates
 import requests
@@ -35,7 +36,7 @@ import astronomy
 
 #matplotlib.use('Agg') # Use before the pyplot import to run on a machine without graphical UI
 
-VERSION = '0.1.1'
+VERSION = '0.1.2'
 
 BASE_URL = 'https://tidesandcurrents.noaa.gov/api/datagetter'
 
@@ -200,8 +201,9 @@ class DataSet:
     """A collection of places and a date range with the ability to query and return the
     corresponding NOAA tide and current predictions."""
 
-    def __init__(self, location, begin_date, end_date, tide_stations, current_stations):
+    def __init__(self, location, abbr, begin_date, end_date, tide_stations, current_stations):
         self.location = location
+        self.abbr = abbr
         self.begin_date = begin_date
         self.end_date = end_date
         begin_datetime = dt.datetime.combine(begin_date, dt.time.min).replace(tzinfo=TIMEZONE)
@@ -382,8 +384,8 @@ def generate_tide_csv(dataset, path):
                     [(tup[0], 'hour', tup[1]) for tup in tide['periodic'] if tup[0].minute == 0])
             for tup in data:
                 # Fractional day as used by most spreadsheets.
-                spreadsheet_date = (tup[0] - SPREADSHEET_ZERO_DATE).total_seconds() / SECONDS_PER_DAY
-                f.write('{},{},{},{}\n'.format(station, tup[1], spreadsheet_date, tup[2]))
+                spreadsheet_day = (tup[0] - SPREADSHEET_ZERO_DATE).total_seconds() / SECONDS_PER_DAY
+                f.write('{},{},{},{}\n'.format(station, tup[1], spreadsheet_day, tup[2]))
 
 
 def annotate_high_low(axes, text, datetime, high_low, height, color):
@@ -576,6 +578,10 @@ class Plot:
         self.add_titles()
         self.add_astronomical_data()
 
+    def filename(self):
+        """Returns a descriptive filename for saving this figure."""
+        return '{}_tides_currents_{}.pdf'.format(self.dataset.abbr, self.date.strftime('%Y%m%d'))
+
 
 # Define selectable sets of tide and current stations, maps available at:
 # https://tidesandcurrents.noaa.gov/map/index.html
@@ -678,10 +684,12 @@ def create_parser():
     parser = argparse.ArgumentParser(
         description='Script to plot NOAA tide and current data for SF Bay area along with basic '
                     'information for the sun and moon.',
-        epilog='Copyright Jody Sankey 2020',
+        epilog='Copyright Jody Sankey 2020-2021',
         formatter_class=SmartFormatter)
     parser.add_argument('-o', '--output_dir', action='store', metavar='DIR',
                         default=tempfile.gettempdir(), help="Directory for output files.")
+    parser.add_argument('-u', '--unify', action='store_true',
+                        help="Combine all plots into a single PDF output file.")
     parser.add_argument('-d', '--date', action='store', metavar='YYYY-MM-DD', required=True,
                         type=_parse_date,
                         help="First date to calculate, e.g. 2020-12-15 for Christmas 2020. "
@@ -709,7 +717,7 @@ def main():
     locations = args.location if args.location else []
     try:
         datasets = [DataSet(LOCATIONS[loc]['name'],
-                            start_date, end_date,
+                            loc, start_date, end_date,
                             LOCATIONS[loc]['tide_stations'],
                             LOCATIONS[loc]['current_stations']) for loc in locations]
     except RequestError as err:
@@ -717,19 +725,34 @@ def main():
         sys.exit(1)
 
     Plot.set_defaults()
-    for (dataset, location_abbreviation) in zip(datasets, locations):
-        for date in [start_date + dt.timedelta(days=i) for i in range(args.num_days)]:
-            plot = Plot(dataset, date)
+    dates = [start_date + dt.timedelta(days=i) for i in range(args.num_days)]
+    date_range_str = '{}_to_{}'.format(start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d'))
+    plots = [Plot(dataset, date) for date in dates for dataset in datasets]
+
+    if args.unify:
+        path = os.path.join(args.output_dir,
+                            '{}_tides_currents_{}.pdf'.format('_'.join(locations), date_range_str))
+        title = '{} Tides & Currents, {} to {}'.format(
+            ', '.join([d.location for d in datasets]),
+            start_date.strftime('%A %-d %B %Y'),
+            end_date.strftime('%A %-d %B %Y'))
+        pdf_pages = PdfPages(path)
+        for plot in plots:
             plot.create_figure()
-            path = os.path.join(
-                args.output_dir,
-                '{}_tides_currents_{}.pdf'.format(location_abbreviation, date.strftime('%Y%m%d')))
+            pdf_pages.savefig()
+        pdf_pages.infodict().update(plots[0].properties)
+        pdf_pages.infodict()['Title'] = title
+        pdf_pages.close()
+        print('Wrote ' + path)
+    else:
+        for plot in plots:
+            plot.create_figure()
+            path = os.path.join(args.output_dir, plot.filename())
             plt.savefig(path, format='pdf', metadata=plot.properties)
             print('Wrote ' + path)
     if args.anchor:
         dataset = DataSet('anchoring', start_date, end_date, ANCHOR_STATIONS, [])
-        path = os.path.join(args.output_dir, 'anchoring_{}_to_{}.csv'.format(
-            start_date.strftime('%Y%m%d'), end_date.strftime('%Y%m%d')))
+        path = os.path.join(args.output_dir, 'anchoring_{}.csv'.format(date_range_str))
         generate_tide_csv(dataset, path)
         print('Wrote ' + path)
 
