@@ -640,8 +640,10 @@ LOCATIONS = {
             TideStation('Southeast Farallon', 9414262, PURPLE),
         ],
         'current_stations': [
-            CurrentStation('0.46nm E of Golden Gate (30ft)', 'SFB1203', 18, 'black', annotate=True),
+            CurrentStation('SF Bay Entrance (19ft)', 'SFB1201', 26, 'black', annotate=True),
             CurrentStation('SF Bar (5ft)', 'SFB1221', 7, 'black', line='dashed'),
+            CurrentStation('0.95nm SSE of Pt Bonita (17ft)', 'SFB1220', 13, GREEN),
+            CurrentStation('0.46nm E of Golden Gate (30ft)', 'SFB1203', 18, BLUE),
             CurrentStation('Bay Bridge B-C span (11ft)', 'SFB1208', 24, PURPLE),
         ]
     },
@@ -751,7 +753,7 @@ def main():
             plt.savefig(path, format='pdf', metadata=plot.properties)
             print('Wrote ' + path)
     if args.anchor:
-        dataset = DataSet('anchoring', start_date, end_date, ANCHOR_STATIONS, [])
+        dataset = DataSet('anchoring', 'anchoring', start_date, end_date, ANCHOR_STATIONS, [])
         path = os.path.join(args.output_dir, 'anchoring_{}.csv'.format(date_range_str))
         generate_tide_csv(dataset, path)
         print('Wrote ' + path)
