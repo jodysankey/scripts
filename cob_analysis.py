@@ -50,14 +50,11 @@ MARKER_T = 30
 LETTER_W = 11
 LETTER_H = 8.5
 MARGIN = 0.4
-TITLE_H = 1
 
 # All colors are taken from https://flatuicolors.com/palette/defo
-PURPLE = '#9b59b6'
 GREEN = '#2ecc71'
 BLUE = '#3498db'
 RED = '#e74c3c'
-ORANGE = '#f39c12'
 BLACK = '#000000'
 
 
@@ -99,13 +96,14 @@ class PointPair:
         self.object = object
         self.range_m = object.range_and_bearing_from(datum)[0]
 
-    @property
-    def time(self):
-        return self.datum.time
-
     def __str__(self):
         return (f'{self.datum.time} lat={self.datum.lat:.3f}/long={self.datum.long:.3f} '
-                f'rng={self.range_m:.1f}m bearing={self.bearing:.2f}')
+                f'rng={self.range_m:.1f}m')
+
+    @property
+    def time(self):
+        """Returns the time of this PointPair"""
+        return self.datum.time
 
 
 class Track:
@@ -133,14 +131,17 @@ class Track:
 
     @property
     def start_time(self):
+        """Returns the time at which the Track starts."""
         return self.smooth[0].time
 
     @property
     def end_time(self):
+        """Returns the time at which the Track ends."""
         return self.smooth[-1].time
 
     @property
     def elapsed_time(self):
+        """Returns the duration of this Track."""
         return self.end_time - self.start_time
 
     def offset_from(self, origin):
@@ -161,20 +162,22 @@ class RecoveryPass:
         self.boat = Track([p.object for p in pairs], BOAT_FILTER_W)
         self.bob = Track([p.datum for p in pairs], BOB_FILTER_W)
 
+    def __str__(self):
+        return(f'recovery #{self.recovery_num} pass #{self.pass_num}   recovered={self.recovered} '
+               f'  elapsed time={int(self.boat.elapsed_time.total_seconds())}s'
+               f'  max range={self.max_range:.1f}m')
+
     @property
     def max_range(self):
+        """Returns the maximum distance between the boat and bob, in meters."""
         return max([rb[0] for rb in self.boat.range_and_bearing_from(self.bob)])
 
     @property
     def title(self):
+        """Returns a string summarizing this RecoveryPass."""
         return '{}  Overboard: {}, Pass: {}, Start: {}'.format(
             self.boat.start_time.strftime('%Y-%m-%d'), self.recovery_num, self.pass_num,
             self.boat.start_time.strftime('%H:%M:%S'))
-
-    def __str__(self):
-        return(f'recovery #{self.recovery_num} pass #{self.pass_num}   recovered={self.recovered} '
-               f'  elapsed time={int(self.elapsed_time.total_seconds())}s'
-               f'  max range={self.max_range:.1f}m')
 
     @staticmethod
     def set_defaults():
@@ -188,17 +191,17 @@ class RecoveryPass:
         """Plots the relative positions using the supplied Matplotlib axes."""
         (ranges, bearings) = zip(*self.boat.range_and_bearing_from(self.bob))
         # Long winded way to find an unoccupied sector to place the range numbers
-        sectors = set([int(b/30) for (r,b) in zip(ranges, bearings) if r > 25])
+        sectors = {int(b / 30) for (r, b) in zip(ranges, bearings) if r > 25}
         best_sector = 0
         while len(sectors) > 0 and len(sectors) < 12:
             best_sector = (set(range(12)) - sectors).pop()
-            neighbors = set([(s-1)%12 for s in sectors]) | set([(s+1)%12 for s in sectors])
+            neighbors = {(s-1)%12 for s in sectors} | {(s+1)%12 for s in sectors}
             sectors |= neighbors
 
-        axes.plot([m.radians(b) for b in bearings], to_ft(ranges), linestyle = '-', color = RED)
+        axes.plot([m.radians(b) for b in bearings], to_ft(ranges), linestyle='-', color=RED)
         axes.plot([m.radians(bearings[i]) for i in self.boat.marker_idxs],
-                to_ft([ranges[i] for i in self.boat.marker_idxs]),
-                marker='o', linestyle='', fillstyle='none', color=RED)
+                  to_ft([ranges[i] for i in self.boat.marker_idxs]),
+                  marker='o', linestyle='', fillstyle='none', color=RED)
         for i, name in zip(self.boat.marker_idxs, self.boat.marker_names):
             axes.annotate(name, (m.radians(bearings[i]), to_ft(ranges[i])), color=RED,
                           ha='left', va='center', xytext=(8, 0), textcoords='offset points',
@@ -217,10 +220,10 @@ class RecoveryPass:
         origin = self.bob.smooth[0]
         (bob_lat, bob_long) = zip(*self.bob.offset_from(origin))
         (bob_m_lat, bob_m_long) = zip(*[self.bob.smooth[i].offset_from(origin)
-                                      for i in self.bob.marker_idxs])
+                                        for i in self.bob.marker_idxs])
         (boat_lat, boat_long) = zip(*self.boat.offset_from(origin))
         (boat_m_lat, boat_m_long) = zip(*[self.boat.smooth[i].offset_from(origin)
-                                        for i in self.bob.marker_idxs])
+                                          for i in self.bob.marker_idxs])
         axes.plot(to_ft(bob_long), to_ft(bob_lat), linestyle='-', color=BLUE)
         axes.plot(to_ft(bob_m_long), to_ft(bob_m_lat),
                   marker='o', linestyle='', fillstyle='none', color=BLUE)
@@ -228,7 +231,7 @@ class RecoveryPass:
             axes.annotate(name, (to_ft(long), to_ft(lat)), color=BLUE,
                           ha='left', va='center', xytext=(8, 0), textcoords='offset points',
                           fontsize='small')
-        axes.plot(to_ft(boat_long), to_ft(boat_lat), linestyle = '-', color = RED)
+        axes.plot(to_ft(boat_long), to_ft(boat_lat), linestyle='-', color=RED)
         axes.plot(to_ft(boat_m_long), to_ft(boat_m_lat),
                   marker='o', linestyle='', fillstyle='none', color=RED)
         for lat, long, name in zip(boat_m_lat, boat_m_long, self.boat.marker_names):
@@ -254,8 +257,8 @@ class RecoveryPass:
         boat_s = [p.speed * KT_PER_MS for p in self.boat.smooth]
         boat_t = [(p.time - start_t).total_seconds() for p in self.boat.smooth]
 
-        axes.plot(boat_t, boat_s, linestyle = '-', color = RED)
-        axes.plot(bob_t, bob_s, linestyle = '-', color = BLUE)
+        axes.plot(boat_t, boat_s, linestyle='-', color=RED)
+        axes.plot(bob_t, bob_s, linestyle='-', color=BLUE)
         axes.xaxis.set_major_locator(matplotlib.ticker.MultipleLocator(30))
         axes.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(1))
         axes.grid(which='major', axis='both', linestyle='-', color='#cccccc')
@@ -283,7 +286,7 @@ class RecoveryPass:
         write_block(2, 'Current Drift', '{:0.1f} kt'.format(drift_s * KT_PER_MS))
         write_block(3, 'Drift Distance', '{:.0f} ft'.format(bob_dist * FT_PER_M))
         write_block(4, 'Max Separation', '{:.0f} ft'.format(self.max_range * FT_PER_M))
-        if (self.recovered):
+        if self.recovered:
             # Calculate pick up speed from the vector between where we'd end up drifting for the
             # final ~10sec and the where the boat actually ended up.
             end_t = (self.boat.smooth[-1].time - self.boat.smooth[-10].time).total_seconds()
@@ -332,7 +335,7 @@ class RecoveryPass:
 
 def to_ft(input):
     """Converts a list supplied in meters to feet."""
-    if type(input) is list or type(input) is tuple:
+    if isinstance(input, (list, tuple)):
         return [m * FT_PER_M for m in input]
     return input * FT_PER_M
 
@@ -372,19 +375,19 @@ def match_point_pairs(datums, objects):
     """Given two time ordered lists of Point objects, returns a list of PointPairs created from the
     entries in each list that occured at the same time."""
     pairs = []
-    i1 = i2 = 0
-    while i1 < len(datums) and i2 < len(objects):
-        if datums[i1].time < objects[i2].time - HALF_SECOND:
+    idx_d = idx_o = 0
+    while idx_d < len(datums) and idx_o < len(objects):
+        if datums[idx_d].time < objects[idx_o].time - HALF_SECOND:
             # If the first index is earlier than we're waiting for in the second list increment it.
-            i1 += 1
-        elif objects[i2].time < datums[i1].time - HALF_SECOND:
+            idx_d += 1
+        elif objects[idx_o].time < datums[idx_d].time - HALF_SECOND:
             # If the second index is earlier than we're waiting for in the first list increment it.
-            i2 += 1
+            idx_o += 1
         else:
             # They must be within half a second, treat it as a match and increment both
-            pairs.append(PointPair(datums[i1], objects[i2]))
-            i1 += 1
-            i2 += 1
+            pairs.append(PointPair(datums[idx_d], objects[idx_o]))
+            idx_d += 1
+            idx_o += 1
     return pairs
 
 
@@ -453,8 +456,7 @@ def create_parser():
     def file_if_valid(parser, arg):
         if not os.path.exists(arg):
             parser.error(f'{arg} does not exist')
-        else:
-            return arg
+        return arg
 
     def seconds(arg):
         return dt.timedelta(seconds=arg)
@@ -481,10 +483,10 @@ def create_parser():
     parser.add_argument('output', metavar='OUTPUT_FILE', help='The path for the output PDF file.')
     parser.add_argument('-s', '--start_time', metavar='HH:MM', action='store', type=time,
                         help='Optional maneouvre start time as a 24hr string in the local time '
-                             'zone. All data prior to this time will be ignored.'),
+                             'zone. All data prior to this time will be ignored.')
     parser.add_argument('-e', '--end_time', metavar='HH:MM', action='store', type=time,
                         help='Optional maneouvre end time as a 24hr string in the local time '
-                             'zone. All data after this time will be ignored.'),
+                             'zone. All data after this time will be ignored.')
     # Note we ask the user to supply the distance in FT to match our UI, but internally use meters.
     parser.add_argument('-d', '--distance', metavar='FT', action='store', default=10, type=ft_to_m,
                         help='Distance between tracks (in feet) to determine overboard/recovery.')

@@ -622,12 +622,14 @@ LOCATIONS = {
             TideStation('Richmond', 9414863, GREEN),
             TideStation('Mare Island', 9415218, BLUE),
             TideStation('Benicia', 9415111, PURPLE),
+            TideStation('Pittsburg', 9415096, RED),
         ],
         'current_stations': [
             CurrentStation('0.46nm E of Golden Gate (30ft)', 'SFB1203', 18, 'black', annotate=True),
-            CurrentStation('Racoon Strait (19ft)', 'SFB1212', 9, RED),
             CurrentStation('Point San Pablo, midchannel (11ft)', 'SFB1312', 16, GREEN),
             CurrentStation('Carquinez Strait (12ft)', 'SFB1319', 10, BLUE, annotate=True),
+            CurrentStation('Martinez-AMORCO (15ft)', 's06010', 16, PURPLE),
+            CurrentStation('New York Slough (5ft)', 'SFB1326', 9, RED),
         ]
     },
     'coastal' : {
