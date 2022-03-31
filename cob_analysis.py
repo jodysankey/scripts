@@ -537,7 +537,5 @@ def main():
     print('Wrote ' + args.output)
 
 
-# Document trust your input data
-
 if __name__ == '__main__':
     main()
