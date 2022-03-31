@@ -28,10 +28,9 @@ import matplotlib
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.font_manager import FontProperties
 import matplotlib.pyplot as plt
-#import matplotlib.dates
 
 # Script version
-VERSION = '0.0.2'
+VERSION = '0.1.0'
 
 # Paper dimensions.
 LETTER_W = 11
@@ -43,7 +42,7 @@ TOP_MARGIN = 0.7
 COL_W = [0.045, 0.2, 0.11, 0.045, 0.045, 0.05, 0.05, 0.05, 0.05, 0.06]
 COL_W.append(1 - sum(COL_W))
 ROW_H = 0.08
-REMARK_WRAP_CHARS = 40  # Hacky manual wrapping of the remarks column, dependent on its width.
+REMARK_WRAP_CHARS = 39  # Hacky manual wrapping of the remarks column, dependent on its width.
 ROWS_PER_PAGE = int(1/ROW_H)
 
 # Colors and fonts
