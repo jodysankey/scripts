@@ -30,7 +30,7 @@ from matplotlib.font_manager import FontProperties
 import matplotlib.pyplot as plt
 
 # Script version
-VERSION = '0.1.0'
+VERSION = '0.1.1'
 
 # Paper dimensions.
 LETTER_W = 11
@@ -296,10 +296,17 @@ def create_parser():
         return arg
 
     parser = argparse.ArgumentParser(
-        description='Script to build a set of printable PDF navigation plans from the supplied '
-                    'GPX route files.\n'
-                    'NOTE: This uses the Python ElementTree parser which is not secure against '
-                    'malicious inputs. Please be sure you trust whatever generated your input '
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description='Script to build a set of printable PDF navigation plans from the supplied\n'
+                    'GPX route files.\n\n'
+                    'The name and description of each waypoint in the GPX are used to populate\n'
+                    'the "Destination" column while the description of the *route* may be used\n'
+                    'to populate the "Remarks" column. Any line in the description starting with\n'
+                    'a number and colon will be used as the remark for that leg number,\n'
+                    'e.g. "3: This is the remark for leg 3". A line in the description starting\n'
+                    'with "author:" will be used to set a "Prepared by" heading on the output.\n\n'
+                    'NOTE: This uses the Python ElementTree parser which is not secure against\n'
+                    'malicious inputs. Please be sure you trust whatever generated your input\n'
                     'track files.',
         epilog='Copyright Jody Sankey 2022')
     parser.add_argument('-v', '--variation', metavar='MAGVAR', default=-13, type=int,
