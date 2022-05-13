@@ -112,9 +112,11 @@ class Track:
         self.raw = points
         time = [p.time for p in points]
         rel_time = [t - time[0] for t in time]
-        lat = savgol_filter([p.lat for p in points], filter_window, 3)
-        long = savgol_filter([p.long for p in points], filter_window, 3)
-        speed = savgol_filter([p.speed for p in points], filter_window, 3)
+        # Ensure the filter window is no longer than the number of points, and odd.
+        adapted_filter_window = min(filter_window, len(points) - (len(points) + 1) % 2)
+        lat = savgol_filter([p.lat for p in points], adapted_filter_window, 3)
+        long = savgol_filter([p.long for p in points], adapted_filter_window, 3)
+        speed = savgol_filter([p.speed for p in points], adapted_filter_window, 3)
         self.smooth = [Point(time[i], lat[i], long[i], speed[i]) for i in range(len(points))]
         self.marker_idxs = []
         self.marker_names = []
@@ -465,7 +467,7 @@ def create_parser():
         return dt.time.fromisoformat(arg)
 
     def ft_to_m(arg):
-        return int(arg / FT_PER_M)
+        return int(arg) / FT_PER_M
 
 
     parser = argparse.ArgumentParser(
@@ -491,11 +493,11 @@ def create_parser():
     parser.add_argument('-d', '--distance', metavar='FT', action='store', default=10, type=ft_to_m,
                         help='Distance between tracks (in feet) to determine overboard/recovery.')
     parser.add_argument('-to', '--overboard_time', metavar="SEC", action='store', type=seconds,
-                        default=dt.timedelta(seconds=10),
+                        default=dt.timedelta(seconds=20),
                         help='Time (in seconds) to detect overboard. If distance between tracks '
                              'remains above `distance` for this time bob is considered overboard.')
     parser.add_argument('-tr', '--recovery_time', metavar="SEC", action='store', type=seconds,
-                        default=dt.timedelta(seconds=20),
+                        default=dt.timedelta(seconds=30),
                         help='Time (in seconds) to detect recovery. If distance between tracks '
                              'remains below `distance` for this time bob is considered recovered.')
     return parser
