@@ -36,7 +36,7 @@ import astronomy
 
 #matplotlib.use('Agg') # Use before the pyplot import to run on a machine without graphical UI
 
-VERSION = '0.1.2'
+VERSION = '0.1.3'
 
 BASE_URL = 'https://tidesandcurrents.noaa.gov/api/datagetter'
 
