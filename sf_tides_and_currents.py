@@ -1,4 +1,4 @@
-#!/bin/python3
+#!/usr/bin/python3
 
 """Script to gather tide and current predictions for the San Fransico Bay area
 using NOAA APIs and produce PDFs to display the predictions from multiple
@@ -36,7 +36,7 @@ import astronomy
 
 #matplotlib.use('Agg') # Use before the pyplot import to run on a machine without graphical UI
 
-VERSION = '0.1.3'
+VERSION = '0.1.4'
 
 BASE_URL = 'https://tidesandcurrents.noaa.gov/api/datagetter'
 
@@ -69,7 +69,6 @@ LETTER_H = 8.5
 TOP_MARGIN = 0.6
 MARGIN = 0.4
 
-
 class RequestError(Exception):
     """Exception raised for problems requesting external data."""
     def __init__(self, params, description):
@@ -83,6 +82,22 @@ class InterpolationError(Exception):
     def __init__(self, description):
         msg = 'Error interpolating data with: {}'.format(description)
         super(InterpolationError, self).__init__(msg)
+
+
+class Logger:
+    """Trivial class to output message to stdout respecting a quiet mode. Want per-level
+    formatting which isn't really supported in python's logging module."""
+    def __init__(self, quiet):
+        self.quiet = quiet
+
+    """Output a warning message, which will be displayed even when quiet."""
+    def warn(self, msg):
+        print('WARNING: ' + msg)
+
+    """Output an info message, which will not be displayed when quiet."""
+    def info(self, msg):
+        if not self.quiet:
+            print(msg)
 
 
 def static_vars(**kwargs):
@@ -218,7 +233,7 @@ class DataSet:
             try:
                 periodic = DataSet._get_periodic_tides(station, begin_date, end_date)
             except RequestError:
-                print('Falling back to tide interpolation for {}'.format(station.name))
+                logger.warning('Falling back to tide interpolation for {}'.format(station.name))
                 periodic = list(sinusoidal_interpolate(extended_high_low, begin_datetime,
                                                        end_datetime, SIX_MIN))
             self.tides.append({
@@ -272,7 +287,7 @@ class DataSet:
         if cache_key in DataSet._get_high_low_tides.cache:
             return DataSet._get_high_low_tides.cache[cache_key]
 
-        print('Fetching high/low tides for {}'.format(cache_key))
+        DataSet.logger.info('Fetching high/low tides for {}'.format(cache_key))
         resp = requests.get(BASE_URL, params=params)
         if resp.status_code != 200:
             raise RequestError(params, 'Non successful HTTP response {}'.format(resp.status_code))
@@ -299,7 +314,7 @@ class DataSet:
         if cache_key in DataSet._get_periodic_tides.cache:
             return DataSet._get_periodic_tides.cache[cache_key]
 
-        print('Fetching periodic tides for {}'.format(cache_key))
+        DataSet.logger.info('Fetching periodic tides for {}'.format(cache_key))
         resp = requests.get(BASE_URL, params=params)
         if resp.status_code != 200:
             raise RequestError(params, 'Non successful HTTP response {}'.format(resp.status_code))
@@ -325,7 +340,7 @@ class DataSet:
         if cache_key in DataSet._get_periodic_currents.cache:
             return DataSet._get_periodic_currents.cache[cache_key]
 
-        print('Fetching periodic currents for {}'.format(cache_key))
+        DataSet.logger.info('Fetching periodic currents for {}'.format(cache_key))
         resp = requests.get(BASE_URL, params=params)
         if resp.status_code != 200:
             raise RequestError(params, 'Non successful HTTP response {}'.format(resp.status_code))
@@ -692,6 +707,9 @@ def create_parser():
         formatter_class=SmartFormatter)
     parser.add_argument('-o', '--output_dir', action='store', metavar='DIR',
                         default=tempfile.gettempdir(), help="Directory for output files.")
+    parser.add_argument('-f', '--output_file', action='store', metavar='FILE',
+                        default=None, help="Output filename. If absent a sensible default will "
+                                           "be derived from date and location")
     parser.add_argument('-u', '--unify', action='store_true',
                         help="Combine all plots into a single PDF output file.")
     parser.add_argument('-d', '--date', action='store', metavar='YYYY-MM-DD', required=True,
@@ -709,6 +727,8 @@ def create_parser():
                         "\nMay be supplied multiple times for multiple locations.")
     parser.add_argument('-a', '--anchor', action='store_true',
                         help="Output a CSV file of tides at standard anchoring locations.")
+    parser.add_argument('-q', '--quiet', action='store_true',
+                        help="Don't print output for successful operations.")
     return parser
 
 
@@ -717,7 +737,9 @@ def main():
     args = create_parser().parse_args()
     start_date = args.date
     end_date = start_date + dt.timedelta(days=args.num_days-1)
+    logger = Logger(args.quiet)
 
+    DataSet.logger = logger
     locations = args.location if args.location else []
     try:
         datasets = [DataSet(LOCATIONS[loc]['name'],
@@ -734,8 +756,9 @@ def main():
     plots = [Plot(dataset, date) for date in dates for dataset in datasets]
 
     if args.unify:
-        path = os.path.join(args.output_dir,
-                            '{}_tides_currents_{}.pdf'.format('_'.join(locations), date_range_str))
+        file = args.output_file or '{}_tides_currents_{}.pdf'.format(
+            '_'.join(locations), date_range_str)
+        path = os.path.join(args.output_dir, file)
         title = '{} Tides & Currents, {} to {}'.format(
             ', '.join([d.location for d in datasets]),
             start_date.strftime('%A %-d %B %Y'),
@@ -747,18 +770,20 @@ def main():
         pdf_pages.infodict().update(plots[0].properties)
         pdf_pages.infodict()['Title'] = title
         pdf_pages.close()
-        print('Wrote ' + path)
+        logger.info('Wrote ' + path)
     else:
         for plot in plots:
             plot.create_figure()
-            path = os.path.join(args.output_dir, plot.filename())
+            # Use the command line argument filename, but only if there is a single output file.
+            file = args.output_file if args.output_file and len(plots) == 1 else plot.filename()
+            path = os.path.join(args.output_dir, file)
             plt.savefig(path, format='pdf', metadata=plot.properties)
-            print('Wrote ' + path)
+            logger.info('Wrote ' + path)
     if args.anchor:
         dataset = DataSet('anchoring', 'anchoring', start_date, end_date, ANCHOR_STATIONS, [])
         path = os.path.join(args.output_dir, 'anchoring_{}.csv'.format(date_range_str))
         generate_tide_csv(dataset, path)
-        print('Wrote ' + path)
+        logger.info('Wrote ' + path)
 
 
 if __name__ == '__main__':
