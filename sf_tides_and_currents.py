@@ -233,7 +233,8 @@ class DataSet:
             try:
                 periodic = DataSet._get_periodic_tides(station, begin_date, end_date)
             except RequestError:
-                logger.warning('Falling back to tide interpolation for {}'.format(station.name))
+                DataSet.logger.warning(
+                    'Falling back to tide interpolation for {}'.format(station.name))
                 periodic = list(sinusoidal_interpolate(extended_high_low, begin_datetime,
                                                        end_datetime, SIX_MIN))
             self.tides.append({
@@ -703,7 +704,7 @@ def create_parser():
     parser = argparse.ArgumentParser(
         description='Script to plot NOAA tide and current data for SF Bay area along with basic '
                     'information for the sun and moon.',
-        epilog='Copyright Jody Sankey 2020-2021',
+        epilog='Copyright Jody Sankey 2020-2022',
         formatter_class=SmartFormatter)
     parser.add_argument('-o', '--output_dir', action='store', metavar='DIR',
                         default=tempfile.gettempdir(), help="Directory for output files.")
