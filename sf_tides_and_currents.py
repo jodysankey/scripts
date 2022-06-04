@@ -233,7 +233,7 @@ class DataSet:
             try:
                 periodic = DataSet._get_periodic_tides(station, begin_date, end_date)
             except RequestError:
-                DataSet.logger.warning(
+                DataSet.logger.warn(
                     'Falling back to tide interpolation for {}'.format(station.name))
                 periodic = list(sinusoidal_interpolate(extended_high_low, begin_datetime,
                                                        end_datetime, SIX_MIN))
