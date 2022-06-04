@@ -16,6 +16,7 @@ single GRIB2 file. Run with --help to see command line options."""
 
 import argparse
 import datetime as dt
+import logging
 import math
 import os.path
 import time
@@ -27,7 +28,9 @@ import requests
 
 class DataProduct:
     """A representation of NOAA weather data product, able to make requests for data."""
-    def __init__(self, base_url, dir_fn, file_fn, out_prefix, interval, levels, variables):
+    def __init__(self, description, base_url, dir_fn, file_fn,
+                 out_prefix, interval, levels, variables):
+        self.description = description
         self.base_url = base_url
         self.dir_fn = dir_fn
         self.file_fn = file_fn
@@ -55,8 +58,8 @@ class DataProduct:
     def request_forecast(self, forecast_time, forecast_hour, args):
         """Requests the URL for the requested time and forecast, printing an info message
         beforehand."""
-        print('Requesting {} data for {}, forecast hour {}'.format(
-            self.out_prefix, forecast_time.strftime('%Y%m%d %HZ'), forecast_hour))
+        logging.info('Requesting %s data for %s, forecast hour %d', self.out_prefix,
+                     forecast_time.strftime('%Y%m%d %HZ'), forecast_hour)
         return requests.get(self.base_url,
                             params=self._make_params(forecast_time, forecast_hour, args))
 
@@ -77,9 +80,10 @@ class DataProduct:
 
 PRODUCTS = {
     'GFS': DataProduct(
+        description='NCEP Global Forecast System at 0.25° resolution',
         base_url=r'https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl',
         dir_fn=lambda time: r'/gfs.{}/{:02d}/atmos'.format(time.strftime('%Y%m%d'), time.hour),
-        file_fn=lambda time,hour: r'gfs.t{:02d}z.pgrb2.0p25.f{:03d}'.format(time.hour, hour),
+        file_fn=lambda time, hour: r'gfs.t{:02d}z.pgrb2.0p25.f{:03d}'.format(time.hour, hour),
         out_prefix=r'gfs_0p25',
         interval=6,
         levels=[
@@ -102,10 +106,11 @@ PRODUCTS = {
             'TCDC',  # Total cloud cover
         ]),
     'GFSwavewcoast': DataProduct(
+        description='NCEP GFS based waves for West Coast',
         base_url=r'https://nomads.ncep.noaa.gov/cgi-bin/filter_gfswave.pl',
         dir_fn=lambda time: r'/gfs.{}/{:02d}/wave/gridded'.format(
             time.strftime('%Y%m%d'), time.hour),
-        file_fn=lambda time,hour: r'gfswave.t{:02d}z.wcoast.0p16.f{:03d}.grib2'.format(
+        file_fn=lambda time, hour: r'gfswave.t{:02d}z.wcoast.0p16.f{:03d}.grib2'.format(
             time.hour, hour),
         out_prefix=r'wave_wcoast_0p16',
         interval=6,
@@ -118,9 +123,10 @@ PRODUCTS = {
     # Unfortunately HRRR isn't usable yet. zxgrib entirely fails to display any grib from HRRR
     # while OpenCPN displays moderately beleivable data but on the wrong place on the map.
     'HRRR': DataProduct(
+        description='NCEP High Resolution Rapid Refresh for continental US',
         base_url=r'https://nomads.ncep.noaa.gov/cgi-bin/filter_hrrr_2d.pl',
         dir_fn=lambda time: r'/hrrr.{}/conus'.format(time.strftime('%Y%m%d')),
-        file_fn=lambda time,hour: r'hrrr.t{:02d}z.wrfsfcf{:02d}.grib2'.format(time.hour, hour),
+        file_fn=lambda time, hour: r'hrrr.t{:02d}z.wrfsfcf{:02d}.grib2'.format(time.hour, hour),
         out_prefix=r'hrrr_conus',
         interval=1,
         levels=[
@@ -147,12 +153,27 @@ PRODUCTS = {
 
 def create_parser():
     """Creates the definition of the expected command line flags."""
+
+    class SmartFormatter(argparse.HelpFormatter):
+        """Trivial formatter to wrap strings beginning with `R|` using their embedded line feeds."""
+        def _split_lines(self, text, width):
+            if text.startswith('R|'):
+                return text[2:].splitlines()
+            # this is the RawTextHelpFormatter._split_lines
+            return argparse.HelpFormatter._split_lines(self, text, width)
+
     parser = argparse.ArgumentParser(
         description='Script to collect NOAA GRIB data for only interesting variables and a limited '
                     'geographical range',
-        epilog='Copyright Jody Sankey 2022')
+        epilog='Copyright Jody Sankey 2022',
+        formatter_class=SmartFormatter)
     parser.add_argument('-o', '--output_dir', action='store', metavar='DIR',
                         default=tempfile.gettempdir(), help="Directory for output file.")
+    parser.add_argument('-p', '--product', action='append', choices=PRODUCTS.keys(),
+                        help="R|NWS products to fetch:\n" +
+                        "\n".join(['  {} - {}'.format(k, PRODUCTS[k].description)
+                                   for k in PRODUCTS]) +
+                        "\nMay be supplied multiple times for multiple products.")
     parser.add_argument('-d', '--duration', action='store', default=48, type=int, metavar='HOURS',
                         help="Time range to collect (this range starts at model run time, not "
                              "current time).")
@@ -168,19 +189,28 @@ def create_parser():
                         help="Minimum longitude to collect data for, positive for East.")
     parser.add_argument('--max_lon', action='store', default=-120, type=int, metavar='DEGREES',
                         help="Maximum longitude to collect data for, positive for East.")
+    parser.add_argument('-q', '--quiet', action='store_true',
+                        help="Don't print output for successful operations.")
+    parser.add_argument('--after', action='store', metavar='FILE',
+                        help="Output filename which new data must be later than.")
     return parser
 
 
 def main():
     """Executes the script using command line arguments."""
     args = create_parser().parse_args()
-    for product in [PRODUCTS[name] for name in ['GFS', 'GFSwavewcoast']]:
+    log_level = logging.WARN if args.quiet else logging.INFO
+    logging.basicConfig(format='%(message)s', level=log_level)
+
+
+    product_names = args.product if args.product else ['GFS']
+    for product in [PRODUCTS[name] for name in product_names]:
         forecast_time = product.get_most_recent_cycle_time()
         resp = product.request_forecast(forecast_time, 0, args)
 
         # If the server doesn't have this most recent time yet, backoff to the previous time
         if resp.status_code == 404:
-            print('Not found, backing off one interval')
+            logging.info('Not found, backing off one interval')
             forecast_time = product.get_previous_cycle_time(forecast_time)
             resp = product.request_forecast(forecast_time, 0, args)
 
@@ -188,8 +218,15 @@ def main():
         if resp.status_code != 200:
             sys.exit('HTTP response code {}'.format(resp.status_code))
 
+        # If an after argument was supplied (usually from the previous run) check the time we've
+        # found is actually later. If not then just quit.
+        filename = product.filename(forecast_time)
+        if args.after and filename <= args.after:
+            logging.info('Data at %s was not after %s. Quitting.', filename, args.after)
+            return
+
         # Write this first response and a set of additional forecast hours to file.
-        filepath = os.path.join(args.output_dir, product.filename(forecast_time))
+        filepath = os.path.join(args.output_dir, filename)
         with open(filepath, 'wb') as file:
             file.write(resp.content)
             for forecast_hour in range(1, args.duration, args.interval):
@@ -198,7 +235,7 @@ def main():
                     sys.exit('HTTP response code {}'.format(resp.status_code))
                 file.write(resp.content)
                 time.sleep(args.sleep / 1000.0)
-        print('Wrote {}'.format(filepath))
+        logging.info('Wrote %s', filepath)
 
 
 if __name__ == '__main__':
