@@ -1,4 +1,4 @@
-#!/bin/python3
+#!/usr/bin/python3
 
 """Script to gather a subset of the current NWS GFS model in a
 single GRIB2 file. Run with --help to see command line options."""
