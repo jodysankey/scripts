@@ -461,7 +461,7 @@ def create_parser():
         return arg
 
     def seconds(arg):
-        return dt.timedelta(seconds=arg)
+        return dt.timedelta(seconds=int(arg))
 
     def time(arg):
         return dt.time.fromisoformat(arg)
@@ -489,6 +489,9 @@ def create_parser():
     parser.add_argument('-e', '--end_time', metavar='HH:MM', action='store', type=time,
                         help='Optional maneouvre end time as a 24hr string in the local time '
                              'zone. All data after this time will be ignored.')
+    parser.add_argument('-te', '--time_error', metavar='SEC', action='store', type=seconds,
+                        help='Optional time correction in seconds to add to all points on '
+                             'bob_track.')
     # Note we ask the user to supply the distance in FT to match our UI, but internally use meters.
     parser.add_argument('-d', '--distance', metavar='FT', action='store', default=10, type=ft_to_m,
                         help='Distance between tracks (in feet) to determine overboard/recovery.')
@@ -509,9 +512,21 @@ def main():
 
     print('Parsing boat track...')
     boat_points = points_from_gpx_file(args.boat_track)
+    print('  Found {} boat points from {} to {}'.format(
+        len(boat_points),
+        boat_points[0].time.strftime('%Y-%m-%m %H:%M:%S'),
+        boat_points[-1].time.strftime('%H:%M:%S')))
     print('Parsing bob track...')
     bob_points = points_from_gpx_file(args.bob_track)
-    print('  Found {} boat points and {} bob points'.format(len(boat_points), len(bob_points)))
+    print('  Found {} bob points from {} to {}'.format(
+        len(bob_points),
+        bob_points[0].time.strftime('%Y-%m-%m %H:%M:%S'),
+        bob_points[-1].time.strftime('%H:%M:%S')))
+
+    if args.time_error:
+        print('Applying time correction...')
+        for p in bob_points:
+            p.time += args.time_error
 
     if args.start_time or args.end_time:
         print('Filtering points by start/end time...')
@@ -520,10 +535,15 @@ def main():
 
     print('Finding matching points...')
     pairs = match_point_pairs(bob_points, boat_points)
+    #for p in pairs: print(p)
     print('  Found {} pairs'.format(len(pairs)))
     print('Finding recovery passes...')
     passes = find_recovery_passes(pairs, args)
     print('  Found {} passes'.format(len(passes)))
+
+    if not passes:
+        print('  Did not find any passes, no output to generate.')
+        return
 
     datestr = passes[0].boat.start_time.strftime('%Y-%m-%d')
     print('Generating {} pages...'.format(len(passes)))

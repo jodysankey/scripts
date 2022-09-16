@@ -655,14 +655,14 @@ LOCATIONS = {
             TideStation('San Francisco', 9414290, 'black', annotate=True),
             TideStation('Point Reyes', 9415020, GREEN),
             TideStation('Pillar Point Harbor', 9414131, BLUE),
-            TideStation('Southeast Farallon', 9414262, PURPLE),
+            TideStation('Santa Cruz', 9413745, PURPLE),
+            TideStation('Monterey', 9413450, RED),
         ],
         'current_stations': [
             CurrentStation('SF Bay Entrance (19ft)', 'SFB1201', 26, 'black', annotate=True),
             CurrentStation('SF Bar (5ft)', 'SFB1221', 7, 'black', line='dashed'),
             CurrentStation('0.95nm SSE of Pt Bonita (17ft)', 'SFB1220', 13, GREEN),
             CurrentStation('0.46nm E of Golden Gate (30ft)', 'SFB1203', 18, BLUE),
-            CurrentStation('Bay Bridge B-C span (11ft)', 'SFB1208', 24, PURPLE),
         ]
     },
 }
@@ -674,6 +674,8 @@ ANCHOR_STATIONS = [
     TideStation('Point Reyes', 9415020, GREEN),
     TideStation('Pillar Point Harbor', 9414131, BLUE),
     TideStation('Sausalito', 9414806, '#e67e22'),
+    TideStation('Santa Cruz', 9413745, PURPLE),
+    TideStation('Monterey', 9413450, RED),
 ]
 
 # Additional stations not currently used.
