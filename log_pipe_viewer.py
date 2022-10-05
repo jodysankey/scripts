@@ -6,7 +6,7 @@
 # Copyright Jody M Sankey 2015
 #========================================================
 # AppliesTo: linux
-# AppliesTo: oberon
+# AppliesTo: server
 # RemoveExtension: True
 #========================================================
 

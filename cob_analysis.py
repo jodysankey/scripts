@@ -11,6 +11,7 @@ to see the command line options."""
 # of the MIT license. See the LICENCE.md file for details.
 #==============================================================
 # AppliesTo: linux
+# AppliesTo: client
 # RemoveExtension: True
 # PublicPermissions: True
 #==============================================================

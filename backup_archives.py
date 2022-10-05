@@ -9,7 +9,7 @@ previous backup for existing files, and copied from the current archive where no
 # Copyright Jody M Sankey 2015-2020
 #========================================================
 # AppliesTo: linux
-# AppliesTo: oberon
+# AppliesTo: server
 # RemoveExtension: True
 #========================================================
 

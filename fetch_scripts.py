@@ -26,7 +26,7 @@ import tempfile
 
 # Define machines of each type.
 CLIENTS = {'vicki', 'debbie', 'katie', 'sasha', 'scarlett'}
-SERVERS = {'oberon', 'umbriel'}
+SERVERS = {'ariel', 'oberon', 'umbriel'}
 
 # Define a pattern for the repository location
 REPO_PATTERN = 'https://github.com/jodysankey/{}.git'

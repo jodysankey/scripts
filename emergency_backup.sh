@@ -1,6 +1,6 @@
 #!/bin/bash
 # AppliesTo: linux
-# AppliesTo: oberon
+# AppliesTo: server
 # PublicPermissions: True
 # RemoveExtension: True
 # Performs an emergency backup to compact flash

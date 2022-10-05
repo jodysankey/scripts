@@ -14,7 +14,7 @@
 # Copyright Jody M Sankey 2010-2018
 #========================================================
 # AppliesTo: linux
-# AppliesTo: oberon
+# AppliesTo: server
 # RemoveExtension: True
 #========================================================
 
