@@ -55,7 +55,7 @@ def freshen_archive_sets(search_paths, output_path, sizes, key_file):
         if not path.exists(size_output_path):
             _write_status('Creating archive size output directory: ' + size_output_path)
             os.makedirs(size_output_path)
-        freshen_archives([a for cd in cds for a in cd.descendantRoots() if a.volume == size],
+        freshen_archives([a for cd in cds for a in cd.descendant_roots() if a.volume == size],
                          size_output_path,
                          key_file)
 
@@ -96,7 +96,7 @@ def create_tar(archive, output_path):
     _write_status('Creating new tar: ' + unencrypted_path)
 
     tar_file = tarfile.open(unencrypted_path, 'w:gz' if archive.compress else 'w')
-    for f in archive.archiveFilenames():
+    for f in archive.archive_filenames():
         try:
             tar_file.add(f, path.relpath(f, archive.full_path), recursive=False)
         except IOError:
@@ -164,7 +164,7 @@ def _archive_tar_filname(archive, before_encryption=False):
     """Returns the expected filename for a classified directory, including hash."""
     return '{}_{}{}.tar{}{}'.format(
         archive.name,
-        archive.archiveHash(),
+        archive.archive_hash(),
         '.secret' if archive.protection == 'secret' else '',
         '.gz' if archive.compress else '',
         '.aes' if _should_encrypt_archive(archive) and not before_encryption else '')

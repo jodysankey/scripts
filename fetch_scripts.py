@@ -178,6 +178,9 @@ def main():
         shutil.copytree(
             os.path.join(tmpdir, 'pythonpath', 'src'),
             pythonpath_target)
+        print(" Making PYTHONPATH world readable")
+        subprocess.check_call(['chmod', 'go+x', pythonpath_target])
+        subprocess.check_call(['chmod', '-R', 'go+r',  pythonpath_target])
 
 
 if __name__ == "__main__":
