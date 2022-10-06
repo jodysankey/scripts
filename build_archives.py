@@ -75,14 +75,20 @@ def freshen_archives(archives, output_path, key_file):
             continue
         created_archive_names.add(archive.name)
 
-        # Create or update the archive timestamp
-        tar_name = _archive_tar_filname(archive)
-        if tar_name in existing_tars:
-            freshen_timestamp(path.join(output_path, tar_name), 'existing tar')
+        # Create the archive or update the timestamp if it exists.
+        encrypt = _should_encrypt_archive(archive)
+        tar_name = _archive_tar_filename(archive)
+        encrypted_tar_name = _archive_tar_filename(archive, before_encryption=False)
+        if not encrypt and tar_name in existing_tars:
+            freshen_timestamp(path.join(output_path, tar_name), 'existing unencrypted tar')
             existing_tars.remove(tar_name)
-        create_tar(archive, output_path)
-        if _should_encrypt_archive(archive):
-            encrypt_tar(archive, output_path, key_file)
+        elif encrypt and encrypted_tar_name in existing_tars:
+            freshen_timestamp(path.join(output_path, encrypted_tar_name), 'existing encrypted tar')
+            existing_tars.remove(encrypted_tar_name)
+        else:
+            create_tar(archive, output_path)
+            if encrypt:
+                encrypt_tar(archive, output_path, key_file)
 
     # Anything else remaining in the archive directory is no longer needed
     for tar_name in existing_tars:
@@ -92,7 +98,8 @@ def freshen_archives(archives, output_path, key_file):
 def create_tar(archive, output_path):
     """Creates an optionally compressed tarfile in the specified directory containing the contents
     of an classified directory object at an archive root."""
-    unencrypted_path = path.join(output_path, _archive_tar_filname(archive, before_encryption=True))
+    unencrypted_path = path.join(output_path,
+                                 _archive_tar_filename(archive, before_encryption=True))
     _write_status('Creating new tar: ' + unencrypted_path)
 
     tar_file = tarfile.open(unencrypted_path, 'w:gz' if archive.compress else 'w')
@@ -107,8 +114,10 @@ def create_tar(archive, output_path):
 def encrypt_tar(archive, output_path, key_file):
     """Creates an encrypted tarfile in the specified directory using an existing unencrypted
     version and a supplied key file. The unencrypted archive is removed after encryption."""
-    unencrypted_path = path.join(output_path, _archive_tar_filname(archive, before_encryption=True))
-    encrypted_path = path.join(output_path, _archive_tar_filname(archive, before_encryption=False))
+    unencrypted_path = path.join(output_path,
+                                 _archive_tar_filename(archive, before_encryption=True))
+    encrypted_path = path.join(output_path,
+                               _archive_tar_filename(archive, before_encryption=False))
 
     _write_status('Encrypting archive to {}'.format(encrypted_path))
     result = subprocess.run(['gpg',
@@ -149,18 +158,19 @@ def _write_status(text):
     """Record an informational note, complete with timestamp."""
     print(datetime.datetime.now().isoformat() + '  ' + text, file=sys.stdout)
 
+
 def _write_error(text):
     """Record an problem, complete with timestamp."""
-    global errors_found
-    errors_found = True
     print(datetime.datetime.now().isoformat() + ' ERROR ' + text, file=sys.stdout)
     print(datetime.datetime.now().isoformat() + '  ' + text, file=sys.stderr)
+
 
 def _should_encrypt_archive(archive):
     """Returns true iff the output of the supplied classified directory should be encrypted"""
     return archive.protection in ('secret', 'confidential', 'restricted')
 
-def _archive_tar_filname(archive, before_encryption=False):
+
+def _archive_tar_filename(archive, before_encryption=False):
     """Returns the expected filename for a classified directory, including hash."""
     return '{}_{}{}.tar{}{}'.format(
         archive.name,
@@ -169,7 +179,10 @@ def _archive_tar_filname(archive, before_encryption=False):
         '.gz' if archive.compress else '',
         '.aes' if _should_encrypt_archive(archive) and not before_encryption else '')
 
+
+
 def main():
+    """Runs the script using command line arguments."""
     parser = argparse.ArgumentParser(description='Builds tar archives with appropriate encryption '
                                      'and compression based on .classify files found in a set of '
                                      'search directories.')
