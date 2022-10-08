@@ -8,6 +8,7 @@
 # AppliesTo: linux
 # AppliesTo: server
 # RemoveExtension: True
+# PublicPermissions: True
 #========================================================
 
 from collections import deque
@@ -65,7 +66,7 @@ FIRST_HOST_ROW = 14
 
 # TODO(jody): Switch was reporting by its IP address. Really want to take a set of host names
 #             and optional remappings from a command line argument rather than hardcoding.
-hosts = ['oberon', 'puck', 'mab', 'switch', 'umbriel', 'debbie', 'vicki']
+hosts = ['ariel', 'puck', 'mab', 'switch', 'umbriel', 'debbie', 'vicki']
 hosts_by_name = {hosts[i]: i for i in range(len(hosts))}
 next_curses_color_index = 1
 
@@ -243,9 +244,7 @@ class HealthMonitor(object):
     td_since_boot = now - self.boot_time
     self.uptime = '{}d {}h'.format(td_since_boot.days, td_since_boot.seconds // SECONDS_PER_HOUR)
     self.temperature = HealthMonitor._valueFromProcessOutput(
-        ['sensors'], r'CPU Temperature:\s*\+?([0-9.]*)') + 'C'
-    self.ups = HealthMonitor._valueFromProcessOutput(
-        ['upsc', 'cyberpower'], r'battery.charge:\s*([0-9.]*)') + '%'
+        ['sensors'], r'Core 0:\s*\+?([0-9.]*)') + 'C'
     self.last_update = now
 
   @staticmethod
@@ -314,10 +313,9 @@ class CursesStatusWin(object):
       # Updating these is expensive. Only do it rarely.
       if datetime.now() > self.health_monitor.last_update + HEALTH_INTERVAL:
         self.health_monitor.update()
-      for i, content in zip(range(12), [
+      for i, content in zip(range(6), [
           'Up:', '{:>8}'.format(self.health_monitor.uptime), '',
-          'CPU:', '{:>8}'.format(self.health_monitor.temperature), '',
-          'UPS:', '{:>8}'.format(self.health_monitor.ups), '']):
+          'CPU:', '{:>8}'.format(self.health_monitor.temperature), '']):
         self.win.addstr(self.height - 14 + i, 1, content)
 
   def _drawHeadings(self):
