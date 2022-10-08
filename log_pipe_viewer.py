@@ -2,8 +2,11 @@
 #========================================================
 # Curses python script to manage display of log messages
 # received on a named pipe.
+# 
+# If updating this a lot should be configuration flags
+# rather than hardcoded.
 #========================================================
-# Copyright Jody M Sankey 2015
+# Copyright Jody M Sankey 2015-2022
 #========================================================
 # AppliesTo: linux
 # AppliesTo: server
@@ -31,6 +34,7 @@ HOST_INDEX_COUNT = 9
 HEALTH_INTERVAL = timedelta(seconds=15)
 
 REPLACEMENTS = (
+    (r'puck', r'puck'),
     (r'\[SWITCH_LOCAL-default-D\]', r''),
     (r' MAC=([0-9a-f]{2}:){5,17}[0-9a-f]', r''),
     (r'TTL=6\d ',''),
@@ -64,10 +68,10 @@ MIN_PANEL_HEIGHT = 34
 FIRST_LEVEL_ROW = 4
 FIRST_HOST_ROW = 14
 
-# TODO(jody): Switch was reporting by its IP address. Really want to take a set of host names
-#             and optional remappings from a command line argument rather than hardcoding.
+HOST_REPLACEMENTS = {'puck.jsankey.com': 'puck'}
+# Note these initial sets can grow if we hear more.
 hosts = ['ariel', 'puck', 'mab', 'switch', 'umbriel', 'debbie', 'vicki']
-hosts_by_name = {hosts[i]: i for i in range(len(hosts))}
+host_to_index = {hosts[i]: i for i in range(len(hosts))}
 next_curses_color_index = 1
 
 
@@ -81,10 +85,9 @@ def init_curses_color(fg_color, bg_color):
 
 DEBUG_FILE = None
 def DEBUG(text):
-  return
-  #if DEBUG_FILE is None: DEBUG_FILE = open('/tmp/logpipe_debug','w')
-  #DEBUG_FILE.write(text + '\n')
-  #DEBUG_FILE.flush()
+  if DEBUG_FILE:
+    with open(DEBUG_FILE,'a') as f:
+       f.write(text + '\n')
 
 
 class Level(object):
@@ -155,12 +158,17 @@ class Entry(object):
   """Defines a single log entry read from the pipe, or a fixed error string"""
 
   @staticmethod
-  def _getOrAddHostIndex(host_name):
+  def _getOrAddHostIndex(raw_host_name):
     """Adds a new host_name to the list and dictionary, unless it exists, returns index."""
-    if host_name not in hosts_by_name:
+    if raw_host_name in HOST_REPLACEMENTS:
+        host_name = HOST_REPLACEMENTS[raw_host_name]
+    else:
+        host_name = raw_host_name
+
+    if host_name not in host_to_index:
       hosts.append(host_name)
-      hosts_by_name[host_name] = len(hosts) - 1
-    return hosts_by_name[host_name]
+      host_to_index[host_name] = len(hosts) - 1
+    return host_to_index[host_name]
 
   @staticmethod
   def fromLogLine(logline):
@@ -316,7 +324,7 @@ class CursesStatusWin(object):
       for i, content in zip(range(6), [
           'Up:', '{:>8}'.format(self.health_monitor.uptime), '',
           'CPU:', '{:>8}'.format(self.health_monitor.temperature), '']):
-        self.win.addstr(self.height - 14 + i, 1, content)
+        self.win.addstr(self.height - 10 + i, 1, content)
 
   def _drawHeadings(self):
     DEBUG('draw hdg')
