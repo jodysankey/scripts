@@ -168,7 +168,7 @@ class Visibility:
 
     def is_entry_visible(self, entry):
         """Returns true if the supplied entry should be visible"""
-        return self.is_host_visible(entry.host) and self.is_level_visible(entry.level.index)
+        return self.is_host_visible(entry.host_idx) and self.is_level_visible(entry.level.index)
 
     def is_host_visible(self, host_index):
         """Returns true if the supplied host should be visible"""
@@ -208,6 +208,7 @@ class Entry:
     def __init__(self, timestr, host_idx, facility, level_idx, tag, msg):
         self.time = timestr
         self.host = HOSTS.list[host_idx]
+        self.host_idx = host_idx
         self.facility = facility
         self.level = LEVELS[level_idx]
         self.tag = tag
@@ -273,12 +274,13 @@ class HealthMonitor:
             td_since_boot.days, td_since_boot.seconds // SECONDS_PER_HOUR)
         self.temperature = HealthMonitor._value_from_process_output(
             ['sensors'], r'Core 0:\s*\+?([0-9.]*)') + 'C'
+        self.home_used = HealthMonitor._value_from_process_output(
+            ['df', '/home', '--output=pcent'], r'(\d+%)')
         self.last_update = now
 
     @staticmethod
     def _value_from_process_output(command_list, regex):
         """Runs a command and returns a string extracted from the output line matching regex.
-
         Note STDERR is discarded since UPSC throws a lot of useless information into STDERR."""
         try:
             response = subprocess.check_output(
@@ -302,18 +304,18 @@ class CursesStatusWin:
 
     def notify_add(self, entry):
         """Updates the counters and headings to account for an added entry."""
-        self.counts[entry.host][entry.level.index] += 1
-        if self.height >= MIN_PANEL_HEIGHT and self.counts[entry.host][entry.level.index] == 1:
+        self.counts[entry.host_idx][entry.level.index] += 1
+        if self.height >= MIN_PANEL_HEIGHT and self.counts[entry.host_idx][entry.level.index] == 1:
             # If this is the first entry for this combination it may have changed the highlights
-            self._draw_host_by_idx(entry.host)
+            self._draw_host_by_idx(entry.host_idx)
             self._draw_level_by_idx(entry.level.index)
 
     def notify_remove(self, entry):
         """Updates the counters and headings to account for a removed entry."""
-        self.counts[entry.host][entry.level.index] -= 1
-        if self.height >= MIN_PANEL_HEIGHT and self.counts[entry.host][entry.level.index] == 0:
+        self.counts[entry.host_idx][entry.level.index] -= 1
+        if self.height >= MIN_PANEL_HEIGHT and self.counts[entry.host_idx][entry.level.index] == 0:
             # If that was the last entry for this combination it may have changed the highlights
-            self._draw_host_by_idx(entry.host)
+            self._draw_host_by_idx(entry.host_idx)
             self._draw_level_by_idx(entry.level.index)
 
     def repaint(self):
@@ -346,10 +348,11 @@ class CursesStatusWin:
             # Updating these is expensive. Only do it rarely.
             if datetime.now() > self.health_monitor.last_update + HEALTH_INTERVAL:
                 self.health_monitor.update()
-            for i, content in zip(range(6), [
+            for idx, content in enumerate([
                     'Up:', '{:>8}'.format(self.health_monitor.uptime), '',
+                    '/home:', '{:>8}'.format(self.health_monitor.home_used), '',
                     'CPU:', '{:>8}'.format(self.health_monitor.temperature), '']):
-                self.win.addstr(self.height - 10 + i, 1, content)
+                self.win.addstr(self.height - 14 + idx, 1, content)
 
     def _draw_headings(self):
         if self.height >= MIN_PANEL_HEIGHT:
@@ -367,8 +370,6 @@ class CursesStatusWin:
         self.win.addstr(FIRST_HOST_ROW + host, 0, host_name, attr)
 
     def _draw_level_by_idx(self, level):
-        #total_count = sum([host_count[level] for host_count in self.counts])
-        #attr = LEVELS[level].color if total_count else NO_LEVEL.color
         attr = LEVELS[level].color
         if self.visibility.is_level_visible(level):
             attr += A_REVERSE
