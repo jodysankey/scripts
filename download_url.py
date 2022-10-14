@@ -37,6 +37,8 @@ def _create_arg_parser():
                         help='url to download file from')
     parser.add_argument('--output', required=True, action='store', dest='output',
                         help='path to output files, including a % to replace with timestamp')
+    parser.add_argument('--quiet', '-q', action='store_true',
+                        help='only print failures')
     return parser
 
 
@@ -89,13 +91,16 @@ def download_url(args):
     last_file = last_matching_file(output_dir, output_template)
     last_hash = hash_file(last_file) if last_file else None
     if not last_hash:
-        print("Saving first content hash {} to {}".format(temp_hash, output_file))
+        if not args.quiet:
+            print("Saving first content hash {} to {}".format(temp_hash, output_file))
         shutil.move(temp_file, output_file)
     elif last_hash != temp_hash:
-        print("Saving new content hash {} to {}".format(temp_hash, output_file))
+        if not args.quiet:
+            print("Saving new content hash {} to {}".format(temp_hash, output_file))
         shutil.move(temp_file, output_file)
     else:
-        print("Skipping duplicate content hash {}".format(temp_hash))
+        if not args.quiet:
+            print("Skipping duplicate content hash {}".format(temp_hash))
         os.unlink(temp_file)
 
 if __name__ == '__main__':
