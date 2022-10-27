@@ -6,7 +6,7 @@ stations on the dame day, along with basic sun and moon data. Run with --help to
 see the command line options."""
 
 #==============================================================
-# Copyright Jody M Sankey 2020
+# Copyright Jody M Sankey 2020-2022
 #
 # This software may be modified and distributed under the terms
 # of the MIT license. See the LICENCE.md file for details.
@@ -36,7 +36,7 @@ import astronomy
 
 #matplotlib.use('Agg') # Use before the pyplot import to run on a machine without graphical UI
 
-VERSION = '0.1.4'
+VERSION = '0.1.5'
 
 BASE_URL = 'https://tidesandcurrents.noaa.gov/api/datagetter'
 
@@ -60,6 +60,7 @@ ORANGE = '#f39c12'
 # we've defined the classes we need to represent them. Search for 'LOCATIONS'
 
 ONE_DAY = dt.timedelta(days=1)
+ONE_HOUR = dt.timedelta(hours=1)
 SIX_MIN = dt.timedelta(minutes=6)
 SPREADSHEET_ZERO_DATE = dt.datetime(1899, 12, 30, 0, 0, 0, 0, TIMEZONE)
 SECONDS_PER_DAY = ONE_DAY.total_seconds()
@@ -90,12 +91,12 @@ class Logger:
     def __init__(self, quiet):
         self.quiet = quiet
 
-    """Output a warning message, which will be displayed even when quiet."""
     def warn(self, msg):
+        """Output a warning message, which will be displayed even when quiet."""
         print('WARNING: ' + msg)
 
-    """Output an info message, which will not be displayed when quiet."""
     def info(self, msg):
+        """Output an info message, which will not be displayed when quiet."""
         if not self.quiet:
             print(msg)
 
@@ -119,7 +120,7 @@ def round_to_minute(datetime):
     return (datetime + dt.timedelta(seconds=30)).replace(second=0, microsecond=0)
 
 
-def sinusoidal_interpolate(highs_lows, start_time, end_time, interval):
+def tide_sinusoidal_interpolate(highs_lows, start_time, end_time, interval):
     """Consumes an iterable of highs and lows as (datetime, 'H'/'L', value) tuples and generates
     a sequence of sinusoidally interpolated (time, value) tuples between start_date and end_date,
     with each point being a timedelta of interval apart."""
@@ -145,6 +146,42 @@ def sinusoidal_interpolate(highs_lows, start_time, end_time, interval):
             value_step = (next_value - last_value)
             time_fraction = (gen_time - last_time).total_seconds() / time_step.total_seconds()
             value_fraction = (math.cos(math.pi * (1 + time_fraction)) + 1) / 2
+            yield (gen_time, last_value + value_fraction * value_step)
+            gen_time += interval
+    except StopIteration:
+        return
+
+def current_sinusoidal_interpolate(maxs_and_slacks, start_time, end_time, interval):
+    """Consumes an iterable of maximums and approximate slacks as (datetime, value) tuples and
+    generates a sequence of sinusoidally interpolated (time, value) tuples between start_date and
+    end_date, with each point being a timedelta of interval apart."""
+    if start_time > end_time:
+        raise InterpolationError("start time was after end time")
+    gen_time = start_time
+    maxs_and_slacks_it = iter(maxs_and_slacks)
+    try:
+        (last_time, last_value) = next(maxs_and_slacks_it)
+        (next_time, next_value) = next(maxs_and_slacks_it)
+        while gen_time < end_time:
+            if last_time >= next_time:
+                raise InterpolationError("maxs_and_slacks data wasn't in ascending time order")
+            if next_time < gen_time:
+                # If the end of current hi_lo interval is earlier that the time we want to generate
+                # skip forward to the next one.
+                (last_time, last_value) = (next_time, next_value)
+                (next_time, next_value) = next(maxs_and_slacks_it)
+                continue
+            # At this stage we know next_time is later than the time we want to generate and
+            # last_time is earlier (or we wouldn't have moved past it), interpolation go brrrrrrr.
+            time_step = (next_time - last_time)
+            value_step = (next_value - last_value)
+            time_fraction = (gen_time - last_time).total_seconds() / time_step.total_seconds()
+            if abs(last_value) < 0.1:
+                value_fraction = math.sin(math.pi * time_fraction/2)
+            elif abs(next_value) < 0.1:
+                value_fraction = 1 - math.cos(math.pi * time_fraction/2)
+            else:
+                raise InterpolationError(f"neither segment end slack: {last_value}, {next_value}")
             yield (gen_time, last_value + value_fraction * value_step)
             gen_time += interval
     except StopIteration:
@@ -235,8 +272,8 @@ class DataSet:
             except RequestError:
                 DataSet.logger.warn(
                     'Falling back to tide interpolation for {}'.format(station.name))
-                periodic = list(sinusoidal_interpolate(extended_high_low, begin_datetime,
-                                                       end_datetime, SIX_MIN))
+                periodic = list(tide_sinusoidal_interpolate(extended_high_low, begin_datetime,
+                                                            end_datetime, SIX_MIN))
             self.tides.append({
                 'station': station,
                 'high_low': [t for t in extended_high_low if begin_date <= t[0].date() <= end_date],
@@ -245,6 +282,13 @@ class DataSet:
         self.currents = list()
         for station in current_stations:
             periodic = DataSet._get_periodic_currents(station, begin_date, end_date)
+            if (periodic[1][0] - periodic[0][0]) / ONE_HOUR > 1.0:
+                DataSet.logger.warn(
+                    'Falling back to current interpolation for {}'.format(station.name))
+                extended = DataSet._get_periodic_currents(station, begin_date - ONE_DAY,
+                                                          end_date + ONE_DAY)
+                periodic = list(current_sinusoidal_interpolate(extended, begin_datetime,
+                                                               end_datetime, SIX_MIN))
             self.currents.append({
                 'station': station,
                 'high_low': list(find_highs_lows(periodic)),
@@ -391,9 +435,8 @@ class DataSet:
 
 
 def generate_tide_csv(dataset, path):
-    """Creates a CSV file of the tide date in the supplied dataset at path."""
+    """Creates a CSV file of the tide data in the supplied dataset at path."""
     with open(path, "w") as f:
-
         for tide in sorted(dataset.tides, key=lambda tide: tide['station'].name):
             station = tide['station'].name
             data = (tide['high_low'] +
@@ -402,6 +445,18 @@ def generate_tide_csv(dataset, path):
                 # Fractional day as used by most spreadsheets.
                 spreadsheet_day = (tup[0] - SPREADSHEET_ZERO_DATE).total_seconds() / SECONDS_PER_DAY
                 f.write('{},{},{},{}\n'.format(station, tup[1], spreadsheet_day, tup[2]))
+
+
+def generate_current_csv(dataset, path):
+    """Creates a CSV file of the current data in the supplied dataset at path."""
+    with open(path, "w") as f:
+        for current in sorted(dataset.currents, key=lambda s: s['station'].name):
+            station = current['station'].name
+            data = [(tup[0], tup[1]) for tup in current['periodic']]
+            for tup in data:
+                # Fractional day as used by most spreadsheets.
+                spreadsheet_day = (tup[0] - SPREADSHEET_ZERO_DATE).total_seconds() / SECONDS_PER_DAY
+                f.write('{},{},{}\n'.format(station, spreadsheet_day, tup[1]))
 
 
 def annotate_high_low(axes, text, datetime, high_low, height, color):
@@ -599,6 +654,52 @@ class Plot:
         return '{}_tides_currents_{}.pdf'.format(self.dataset.abbr, self.date.strftime('%Y%m%d'))
 
 
+def parse_locations(file_path):
+    """Parses a csv file at the supplied path defining a set of tide and current locations and
+    line styles for plotting them, returning lists of tide and current stations.
+
+    Each line in the file must contain 7 comma seperated lines as follows:
+      1 = 'tide' or 'current'
+      2 = A human readable description of the location
+      3 = NOAA tide or current station ID
+      4 = bin number for a current station or empty for tide stations
+      5 = Line color as a six character hex RGB string
+      6 = Line style as one of: '-', '--', '-.', ':', 'solid', 'dashed', 'dashdot', 'dotted'
+      7 = 'annotate' if the highs and lows are to be annotated.
+
+    Empty lines and lines that start with # are ignored.
+
+    For example a valid line may be:
+      tide,San Francisco,9414290,,000000,dotted,annotate
+    """
+    tides = []
+    currents = []
+    try:
+        f = open(file_path, 'r')
+    except OSError:
+        print(f'Location file could not be opened {file_path}')
+        sys.exit(1)
+
+    with f:
+        for line in f.readlines():
+            if len(line.strip()) == 0 or line.startswith('#'):
+                continue
+            elements = line.split(',')
+            if len(elements) != 7:
+                print(f'Location file line did not contain 7 elements: {line}')
+                sys.exit(1)
+            annotate = (elements[6].strip() == 'annotate')
+            if elements[0].strip() == 'tide':
+                tides.append(TideStation(
+                    name=elements[1], sid=elements[2],
+                    color=('#'+elements[4]), line=elements[5], annotate=annotate))
+            elif elements[0].strip() == 'current':
+                currents.append(CurrentStation(
+                    name=elements[1], sid=elements[2], sbin=elements[3],
+                    color=('#'+elements[4]), line=elements[5], annotate=annotate))
+    return (tides, currents)
+
+
 # Define selectable sets of tide and current stations, maps available at:
 # https://tidesandcurrents.noaa.gov/map/index.html
 # https://tidesandcurrents.noaa.gov/map/index.html?type=CurrentPredictions
@@ -671,11 +772,24 @@ LOCATIONS = {
 # Define a fixed set of stations used for the anchoring CSV output. Color is not used.
 ANCHOR_STATIONS = [
     TideStation('San Francisco', 9414290, 'black'),
-    TideStation('Point Reyes', 9415020, GREEN),
-    TideStation('Pillar Point Harbor', 9414131, BLUE),
-    TideStation('Sausalito', 9414806, '#e67e22'),
-    TideStation('Santa Cruz', 9413745, PURPLE),
-    TideStation('Monterey', 9413450, RED),
+    TideStation('Point Reyes', 9415020, 'black'),
+    TideStation('Pillar Point Harbor', 9414131, 'black'),
+    TideStation('Sausalito', 9414806, 'black'),
+    TideStation('Santa Cruz', 9413745, 'black'),
+    TideStation('Monterey', 9413450, 'black'),
+]
+
+# Define a fixed set of stations used for the current CSV output. Color is not used.
+CURRENT_STATIONS = [
+    CurrentStation('SF Bay Entrance (19ft)', 'SFB1201', 26, 'black'),
+    CurrentStation('SF Bar (5ft)', 'SFB1221', 7, 'black'),
+    CurrentStation('0.95nm SSE of Pt Bonita (17ft)', 'SFB1220', 13, 'black'),
+    CurrentStation('0.46nm E of Golden Gate (30ft)', 'SFB1203', 18, 'black'),
+    CurrentStation('3.7nm W of Pt Lobos (46 ft)', 'PCT0191', 1, 'black'),
+    CurrentStation('0.2nm SE of Pt Diablo (?? ft)', 'PCT0251', 1, 'black'),
+    CurrentStation('0.4nm SSE of Pt Bonita (43 ft)', 'PCT0236', 1, 'black'),
+    CurrentStation('0.3nm W of Fort Point (75 ft)', 'PCT0261', 1, 'black'),
+    CurrentStation('0.2nm NW of Mile Rock (15 ft)', 'PCT0246', 1, 'black'),
 ]
 
 # Additional stations not currently used.
@@ -710,7 +824,7 @@ def create_parser():
         formatter_class=SmartFormatter)
     parser.add_argument('-o', '--output_dir', action='store', metavar='DIR',
                         default=tempfile.gettempdir(), help="Directory for output files.")
-    parser.add_argument('-f', '--output_file', action='store', metavar='FILE',
+    parser.add_argument('-f', '--output_file', action='store', metavar='OUT_FILE',
                         default=None, help="Output filename. If absent a sensible default will "
                                            "be derived from date and location")
     parser.add_argument('-u', '--unify', action='store_true',
@@ -728,8 +842,13 @@ def create_parser():
                         "\n".join(['  {} - {}'.format(k, LOCATIONS[k]['description'])
                                    for k in LOCATIONS]) +
                         "\nMay be supplied multiple times for multiple locations.")
+    parser.add_argument('-i', '--location_input', action='store', metavar='IN_FILE',
+                        help="Comma separated file of locations and line colors as described in "
+                             "the parse_locations function.")
     parser.add_argument('-a', '--anchor', action='store_true',
                         help="Output a CSV file of tides at standard anchoring locations.")
+    parser.add_argument('-c', '--currents', action='store_true',
+                        help="Output a CSV file of currents at standard current locations.")
     parser.add_argument('-q', '--quiet', action='store_true',
                         help="Don't print output for successful operations.")
     return parser
@@ -752,6 +871,10 @@ def main():
     except RequestError as err:
         print(err)
         sys.exit(1)
+    if args.location_input:
+        tides, currents = parse_locations(args.location_input)
+        datasets.append(DataSet('', 'custom', start_date, end_date,
+                                tides, currents))
 
     Plot.set_defaults()
     dates = [start_date + dt.timedelta(days=i) for i in range(args.num_days)]
@@ -786,6 +909,11 @@ def main():
         dataset = DataSet('anchoring', 'anchoring', start_date, end_date, ANCHOR_STATIONS, [])
         path = os.path.join(args.output_dir, 'anchoring_{}.csv'.format(date_range_str))
         generate_tide_csv(dataset, path)
+        logger.info('Wrote ' + path)
+    if args.currents:
+        dataset = DataSet('currents', 'currents', start_date, end_date, [], CURRENT_STATIONS)
+        path = os.path.join(args.output_dir, 'currents_{}.csv'.format(date_range_str))
+        generate_current_csv(dataset, path)
         logger.info('Wrote ' + path)
 
 
