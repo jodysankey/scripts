@@ -535,19 +535,22 @@ def parse_gnucash_file(filename, control_accounts, control_account_names):
     book = tree.getroot()[1]
     budget = book.find('{http://www.gnucash.org/XML/gnc}budget')
     if budget is None:
-        throw_error("Could not find budget in file")
+        throw_error('Could not find budget in file')
 
     # Gather standard budget naming and timing data
     budget_name = budget.findtext('{http://www.gnucash.org/XML/bgt}name')
     recurrence = budget.find('{http://www.gnucash.org/XML/bgt}recurrence')
     if recurrence.findtext('{http://www.gnucash.org/XML/recurrence}period_type') != 'month':
-        throw_error("Budget must be monthly")
+        throw_error(f'Budget {budget_name} must be monthly')
     start_str = recurrence.find('{http://www.gnucash.org/XML/recurrence}start')[0].text
     periods = int(budget.findtext('{http://www.gnucash.org/XML/bgt}num-periods'))
     budget_months = MonthSet(start_str, periods)
 
     # And make a budget object for each thing we find in the budget which actually has a value
-    for x_account in list(budget.find('{http://www.gnucash.org/XML/bgt}slots')):
+    x_accounts = list(budget.find('{http://www.gnucash.org/XML/bgt}slots'))
+    if not x_accounts:
+        throw_error(f'Budget {budget_name} must contain at least one account')
+    for x_account in x_accounts:
         uid = x_account.findtext('{http://www.gnucash.org/XML/slot}key')
         control_acc = ControlAccount(uid, periods)
         has_value = False

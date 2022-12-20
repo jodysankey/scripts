@@ -10,7 +10,9 @@
 # PublicPermissions: True
 #========================================================
 pylint $1
-while inotifywait -e close_write $1
-do
-  pylint $1
+inotifywait -e close_write,moved_to,create -m . |
+while read -r directory events filename; do
+  if [ "$filename" = "$1" ]; then
+    pylint $1
+  fi
 done
