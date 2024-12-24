@@ -198,7 +198,7 @@ def correct_repo_application(depl, status):
         if resp == 'c':
             status.cancelled = True
         elif resp == 'y':
-            run_command(['aptitude', 'install', pkg])
+            run_command(['aptitude', '-y', 'install', pkg])
 
 
 def correct_cm_component(depl, status):
@@ -233,6 +233,9 @@ def correct_cm_component(depl, status):
         if resp == 'c':
             status.cancelled = True
         elif resp == 'y':
+            if not os.path.exists(local_path):
+                print('<<Creating {}>>'.format(local_path))
+                os.makedirs(local_path)
             print('<<Copy2 {} to {}>>'.format(cm_working_path, local_path))
             shutil.copy2(cm_working_path, local_path)
     elif depl.status == 'ModifiedLocally' or depl.status == 'OutOfDate':
