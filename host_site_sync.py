@@ -77,6 +77,7 @@ def add_cm_working_file(source_file, target):
     directory = os.path.dirname(target)
     try:
         if not os.path.exists(directory):
+            print('<<Creating {}>>'.format(directory))
             os.makedirs(directory)
         print('<<Copy2 {} to {}>>'.format(source_file, target))
         shutil.copy2(source_file, target)
@@ -233,9 +234,10 @@ def correct_cm_component(depl, status):
         if resp == 'c':
             status.cancelled = True
         elif resp == 'y':
-            if not os.path.exists(local_path):
-                print('<<Creating {}>>'.format(local_path))
-                os.makedirs(local_path)
+            local_dir = os.path.dirname(local_path)
+            if not os.path.exists(local_dir):
+                print('<<Creating {}>>'.format(local_dir))
+                os.makedirs(local_dir)
             print('<<Copy2 {} to {}>>'.format(cm_working_path, local_path))
             shutil.copy2(cm_working_path, local_path)
     elif depl.status == 'ModifiedLocally' or depl.status == 'OutOfDate':
