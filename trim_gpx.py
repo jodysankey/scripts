@@ -166,12 +166,15 @@ class Track:
 
     def trim(self, start, end):
         """Delete all points outside the supplied indices and update times to match."""
-        # Update the custom Navionics time propertied if they exist.
+        # Update the custom Navionics time properties if they exist.
         ext = self.xml_segment.find('extensions', NS)
-        if ext is not None and ext.find('navionics_start_time', NS):
-            ext.find('navionics_start_time', NS).text = self.points[start].xml.find('time', NS).text
-        if ext is not None and ext.find('navionics_end_time', NS):
-            ext.find('navionics_end_time', NS).text = self.points[end].xml.find('time', NS).text
+        if ext is not None:
+            navionics_start = ext.find('navionics_start_time', NS)
+            if navionics_start is not None:
+                navionics_start.text = self.points[start].xml.find('time', NS).text
+            navionics_end = ext.find('navionics_end_time', NS)
+            if navionics_end is not None:
+                navionics_end.text = self.points[end].xml.find('time', NS).text
         # Delete any points outside the time range.
         start_time = self.points[start].time
         end_time = self.points[end].time
