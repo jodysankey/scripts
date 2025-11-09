@@ -103,7 +103,7 @@ def main() -> None:
         args[4] if len(args) == 5 else DEFAULT_PREFIX,
         customizations,
         options,
-        kills,
+        kills if kills else None,
     )
 
 
