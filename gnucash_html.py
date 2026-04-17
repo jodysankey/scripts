@@ -49,20 +49,6 @@ def unrationalize(fraction: str) -> float:
     return float(numerator) / float(denominator)
 
 
-class SpendAccount:
-    """Simple class to store data for each exdenditure tracking account."""
-
-    def __init__(
-        self, uid: str, periods: int, name: str, path: str, control_account: "ControlAccount"
-    ) -> None:
-        self.uid = uid
-        self.path = path
-        self.name = name
-        self.control_account = control_account
-        self.expenditures = [0 for i in range(periods)]  # @UnusedVariable
-        self.transactions = [[] for i in range(periods)]  # @UnusedVariable
-
-
 class ControlAccount:
     """Simple class to store data for each budgeted Account."""
 
@@ -75,9 +61,23 @@ class ControlAccount:
 
     def __str__(self) -> str:
         ret = f"Budget '{self.name}' (UID={self.uid})\n  "
-        for i in range(len(self.budgets)):
-            ret += f"[{self.budgets[i]},{self.expenditures[i]}]"
+        for i, budget in enumerate(self.budgets):
+            ret += f"[{budget},{self.expenditures[i]}]"
         return ret
+
+
+class SpendAccount:
+    """Simple class to store data for each exdenditure tracking account."""
+
+    def __init__(
+        self, uid: str, periods: int, name: str, path: str, control_account: ControlAccount
+    ) -> None:
+        self.uid = uid
+        self.path = path
+        self.name = name
+        self.control_account = control_account
+        self.expenditures = [0 for i in range(periods)]  # @UnusedVariable
+        self.transactions = [[] for i in range(periods)]  # @UnusedVariable
 
 
 class MonthSet:
@@ -91,17 +91,15 @@ class MonthSet:
             e_y += 1
         end_date = date(e_y, e_m, 1) - timedelta(days=1)
         self.dates = (start_date, end_date)
-        self.strings = (start_date.isoformat(), end_date.isoformat())
         self.count = count
-        self.__yearplusmonth = start_date.year * 12 + start_date.month
 
-    def in_range(self, date_str: str) -> bool:
+    def in_range(self, d: date) -> bool:
         """Returns true iff a supplied date falls within this MonthSet."""
-        return self.strings[0] <= date_str <= self.strings[1]
+        return self.dates[0] <= d <= self.dates[1]
 
-    def column(self, date_str: str) -> int:
+    def column(self, d: date) -> int:
         """Returns a zero based month index for the supplied date."""
-        return int(date_str[0:4]) * 12 + int(date_str[5:7]) - self.__yearplusmonth
+        return d.year * 12 + d.month - (self.dates[0].year * 12 + self.dates[0].month)
 
     def column_names(self) -> list[str]:
         """Returns a list of the names for all months in this set."""
@@ -536,11 +534,11 @@ def parse_gnucash_file(
     control_accounts: dict[str, ControlAccount],
     control_account_names: dict[str, str],
 ) -> tuple[str, MonthSet]:
-    """Reads data from  specified GNU cash file into account objects
+    """Reads data from the specified GNU cash file into account objects
 
-    control_accounts is populated with budgeted account objects hashed by UID
-    control_account_names is populated with account UIDs hashed by name
-    returns a list of [budgetName, monthSet]"""
+    control_accounts is a dict of account UID to ControlAccount.
+    control_account_names is a dict of account name to account UID.
+    returns a tuple of budgetName and monthSet."""
 
     # Read the file and work with the first budget we find
     tree = xml.etree.ElementTree.parse(filename)
@@ -573,8 +571,8 @@ def parse_gnucash_file(
         if has_value:
             control_accounts[uid] = control_acc
 
-    # Now go back and create a hash of all the spend accounts which contribute to one of these
-    # control accounts, adding names to the control accounts, and creating a reverse hash
+    # Now go back and create a dict of all the spend accounts which contribute to one of these
+    # control accounts, adding names to the control accounts, and creating a reverse dict
     spend_accounts = {}
 
     for x_account in book.findall("{http://www.gnucash.org/XML/gnc}account"):
@@ -605,14 +603,15 @@ def parse_gnucash_file(
     # Finally ready to process each transaction
     for x_trans in book.findall("{http://www.gnucash.org/XML/gnc}transaction"):
         date_str = x_trans.find("{http://www.gnucash.org/XML/trn}date-posted")[0].text[:10]
+        trans_date = date.fromisoformat(date_str)
 
         # Check transaction is in date
-        if budget_months.in_range(date_str):
+        if budget_months.in_range(trans_date):
 
             # Yes, gather common info
             desc = x_trans.findtext("{http://www.gnucash.org/XML/trn}description") or ""
             notes = None
-            col = budget_months.column(date_str)
+            col = budget_months.column(trans_date)
             if x_trans.find("{http://www.gnucash.org/XML/trn}slots") is not None:
                 for x_slot in list(x_trans.find("{http://www.gnucash.org/XML/trn}slots")):
                     if x_slot[0].text == "notes":
@@ -661,7 +660,7 @@ def create_totals_and_styles(
     account_names: dict[str, str],
     months: MonthSet,
 ) -> tuple[list[list[float]], list[list[float]], list[float], list[list[list[str]]]]:
-    """Summarizes totals and style names a hash of account objects.
+    """Summarizes totals and style names a dict of account objects.
 
     returns a list of [account_totals, month_totals, grand_totals, styles]"""
 
@@ -671,7 +670,7 @@ def create_totals_and_styles(
     styles = [[["none", "none"] for i in range(months.count)] for j in accounts]  # @UnusedVariable
 
     last_month = date.today().replace(day=1) - timedelta(days=1)
-    last_col = months.column(last_month.isoformat())
+    last_col = months.column(last_month)
 
     row = 0
     for name in sorted(account_names):
@@ -848,9 +847,7 @@ def write_html(
         account = accounts[account_names[name]]
 
         wt.open("tr")
-        wt.write(
-            "th", f'class="right" onmouseover="selectAccountHeader({row})"', escape(name)
-        )
+        wt.write("th", f'class="right" onmouseover="selectAccountHeader({row})"', escape(name))
         for col in range(0, months.count):
             wt.open("td", f'onmouseover="selectCell({row},{col})"')
             wt.write(
