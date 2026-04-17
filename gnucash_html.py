@@ -23,11 +23,12 @@ import os.path
 import sys
 import xml.etree.ElementTree
 from datetime import date, timedelta
+from typing import NoReturn
 from xml.sax.saxutils import escape
 import tagwriter
 
 
-def print_usage():
+def print_usage() -> NoReturn:
     """Print standard help string then quit"""
     ver = sys.version_info
     print("\nUsage: gnucashhtml MODE GNUCASHFILE HTMLFILE")
@@ -36,13 +37,13 @@ def print_usage():
     sys.exit()
 
 
-def throw_error(text):
+def throw_error(text: str) -> NoReturn:
     """Output an error message then quit"""
     print("ERROR: " + text)
     sys.exit(1)
 
 
-def unrationalize(fraction):
+def unrationalize(fraction: str) -> float:
     """Return a floating point representation of the input rational fraction string"""
     (numerator, denominator) = fraction.split("/")
     return float(numerator) / float(denominator)
@@ -51,7 +52,9 @@ def unrationalize(fraction):
 class SpendAccount:
     """Simple class to store data for each exdenditure tracking account."""
 
-    def __init__(self, uid, periods, name, path, control_account):
+    def __init__(
+        self, uid: str, periods: int, name: str, path: str, control_account: "ControlAccount"
+    ) -> None:
         self.uid = uid
         self.path = path
         self.name = name
@@ -63,14 +66,14 @@ class SpendAccount:
 class ControlAccount:
     """Simple class to store data for each budgeted Account."""
 
-    def __init__(self, uid, periods):
+    def __init__(self, uid: str, periods: int) -> None:
         self.uid = uid
         self.name = ""
         self.sas = []
         self.budgets = [0 for i in range(periods)]  # @UnusedVariable
         self.expenditures = [0 for i in range(periods)]  # @UnusedVariable
 
-    def __str__(self):
+    def __str__(self) -> str:
         ret = f"Budget '{self.name}' (UID={self.uid})\n  "
         for i in range(len(self.budgets)):
             ret += f"[{self.budgets[i]},{self.expenditures[i]}]"
@@ -80,7 +83,7 @@ class ControlAccount:
 class MonthSet:
     """Simple class to represent a contiguous set of months."""
 
-    def __init__(self, start_str, count):
+    def __init__(self, start_str: str, count: int) -> None:
         start_date = date(int(start_str[0:4]), int(start_str[5:7]), 1)
         e_y, e_m = start_date.year, start_date.month + count
         while e_m > 12:
@@ -92,15 +95,15 @@ class MonthSet:
         self.count = count
         self.__yearplusmonth = start_date.year * 12 + start_date.month
 
-    def in_range(self, date_str):
+    def in_range(self, date_str: str) -> bool:
         """Returns true iff a supplied date falls within this MonthSet."""
         return self.strings[0] <= date_str <= self.strings[1]
 
-    def column(self, date_str):
+    def column(self, date_str: str) -> int:
         """Returns a zero based month index for the supplied date."""
         return int(date_str[0:4]) * 12 + int(date_str[5:7]) - self.__yearplusmonth
 
-    def column_names(self):
+    def column_names(self) -> list[str]:
         """Returns a list of the names for all months in this set."""
         fmt = "%b" if self.count <= 12 else "%b %Y"
         return [
@@ -528,7 +531,11 @@ function selectAccountHeader(row)
 """
 
 
-def parse_gnucash_file(filename, control_accounts, control_account_names):
+def parse_gnucash_file(
+    filename: str,
+    control_accounts: dict[str, ControlAccount],
+    control_account_names: dict[str, str],
+) -> tuple[str, MonthSet]:
     """Reads data from  specified GNU cash file into account objects
 
     control_accounts is populated with budgeted account objects hashed by UID
@@ -649,7 +656,11 @@ def parse_gnucash_file(filename, control_accounts, control_account_names):
     return (budget_name, budget_months)
 
 
-def create_totals_and_styles(accounts, account_names, months):
+def create_totals_and_styles(
+    accounts: dict[str, ControlAccount],
+    account_names: dict[str, str],
+    months: MonthSet,
+) -> tuple[list[list[float]], list[list[float]], list[float], list[list[list[str]]]]:
     """Summarizes totals and style names a hash of account objects.
 
     returns a list of [account_totals, month_totals, grand_totals, styles]"""
@@ -698,20 +709,20 @@ def create_totals_and_styles(accounts, account_names, months):
 
     grand_totals = [sum([x[i] for x in account_totals]) for i in range(3)]
 
-    return [account_totals, month_totals, grand_totals, styles]
+    return (account_totals, month_totals, grand_totals, styles)
 
 
 def write_html(
-    filename,
-    title,
-    accounts,
-    account_names,
-    account_totals,
-    months,
-    month_totals,
-    grand_totals,
-    styles,
-):
+    filename: str,
+    title: str,
+    accounts: dict[str, ControlAccount],
+    account_names: dict[str, str],
+    account_totals: list[list[float]],
+    months: MonthSet,
+    month_totals: list[list[float]],
+    grand_totals: list[float],
+    styles: list[list[list[str]]],
+) -> None:
     """Writes the supplied account data out as HTML at the specified filename."""
 
     # Open our output document
@@ -930,7 +941,7 @@ def write_html(
     wt.close()  # Html
 
 
-def main():
+def main() -> None:
     """Executes the script using command line inputs."""
 
     # Just print usage if no arguments supplied
