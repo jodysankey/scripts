@@ -2,14 +2,14 @@
 # -*- coding: utf-8 -*-
 
 ##========================================================
-# Copyright Jody M Sankey 2010-2011
-#========================================================
+# Copyright Jody M Sankey 2010-2026
+# ========================================================
 # AppliesTo: linux
 # RemoveExtension: True
 # PublicPermissions: True
-#========================================================
+# ========================================================
 
-""" Python script to translate GnuCash XML file into  a user friendly HTML report.
+"""Python script to translate GnuCash XML file into  a user friendly HTML report.
 
 All data is driven by the first budget found in the input file. The accounts with a budget
 are treated as control accounts, for tracking the total spend in any child accounts. The months
@@ -32,7 +32,7 @@ def print_usage():
     ver = sys.version_info
     print("\nUsage: gnucashhtml MODE GNUCASHFILE HTMLFILE")
     print("       MODE = 'budget'")
-    print("(c)2010 Jody Sankey, currently running in Python v{}.{}.{}\n".format(*ver))
+    print(f"(c)2010 Jody Sankey, currently running in Python v{ver[0]}.{ver[1]}.{ver[2]}\n")
     sys.exit()
 
 
@@ -45,38 +45,41 @@ def throw_error(text):
 def unrationalize(fraction):
     """Return a floating point representation of the input rational fraction string"""
     (numerator, denominator) = fraction.split("/")
-    return float(numerator)/float(denominator)
+    return float(numerator) / float(denominator)
 
 
 class SpendAccount:
     """Simple class to store data for each exdenditure tracking account."""
+
     def __init__(self, uid, periods, name, path, control_account):
         self.uid = uid
         self.path = path
         self.name = name
         self.control_account = control_account
-        self.expenditures = [0 for i in range(periods)] #@UnusedVariable
-        self.transactions = [[] for i in range(periods)] #@UnusedVariable
+        self.expenditures = [0 for i in range(periods)]  # @UnusedVariable
+        self.transactions = [[] for i in range(periods)]  # @UnusedVariable
 
 
 class ControlAccount:
     """Simple class to store data for each budgeted Account."""
+
     def __init__(self, uid, periods):
         self.uid = uid
-        self.name = ''
+        self.name = ""
         self.sas = []
-        self.budgets = [0 for i in range(periods)] #@UnusedVariable
-        self.expenditures = [0 for i in range(periods)] #@UnusedVariable
+        self.budgets = [0 for i in range(periods)]  # @UnusedVariable
+        self.expenditures = [0 for i in range(periods)]  # @UnusedVariable
 
     def __str__(self):
-        ret = "Budget '{}' (UID={})\n  ".format(self.name, self.uid)
+        ret = f"Budget '{self.name}' (UID={self.uid})\n  "
         for i in range(len(self.budgets)):
-            ret += "[{},{}]".format(self.budgets[i], self.expenditures[i])
+            ret += f"[{self.budgets[i]},{self.expenditures[i]}]"
         return ret
 
 
 class MonthSet:
     """Simple class to represent a contiguous set of months."""
+
     def __init__(self, start_str, count):
         start_date = date(int(start_str[0:4]), int(start_str[5:7]), 1)
         e_y, e_m = start_date.year, start_date.month + count
@@ -87,7 +90,7 @@ class MonthSet:
         self.dates = (start_date, end_date)
         self.strings = (start_date.isoformat(), end_date.isoformat())
         self.count = count
-        self.__yearplusmonth = start_date.year*12 + start_date.month
+        self.__yearplusmonth = start_date.year * 12 + start_date.month
 
     def in_range(self, date_str):
         """Returns true iff a supplied date falls within this MonthSet."""
@@ -95,12 +98,14 @@ class MonthSet:
 
     def column(self, date_str):
         """Returns a zero based month index for the supplied date."""
-        return int(date_str[0:4])*12 + int(date_str[5:7]) - self.__yearplusmonth
+        return int(date_str[0:4]) * 12 + int(date_str[5:7]) - self.__yearplusmonth
 
     def column_names(self):
         """Returns a list of the names for all months in this set."""
-        fmt = '%b' if self.count <= 12 else '%b %Y'
-        return [(self.dates[0] + timedelta(days=31*x)).strftime(fmt) for x in range(0, self.count)]
+        fmt = "%b" if self.count <= 12 else "%b %Y"
+        return [
+            (self.dates[0] + timedelta(days=31 * x)).strftime(fmt) for x in range(0, self.count)
+        ]
 
 
 CSS_TEXT = """
@@ -533,30 +538,31 @@ def parse_gnucash_file(filename, control_accounts, control_account_names):
     # Read the file and work with the first budget we find
     tree = xml.etree.ElementTree.parse(filename)
     book = tree.getroot()[1]
-    budget = book.find('{http://www.gnucash.org/XML/gnc}budget')
+    budget = book.find("{http://www.gnucash.org/XML/gnc}budget")
     if budget is None:
-        throw_error('Could not find budget in file')
+        throw_error("Could not find budget in file")
 
     # Gather standard budget naming and timing data
-    budget_name = budget.findtext('{http://www.gnucash.org/XML/bgt}name')
-    recurrence = budget.find('{http://www.gnucash.org/XML/bgt}recurrence')
-    if recurrence.findtext('{http://www.gnucash.org/XML/recurrence}period_type') != 'month':
-        throw_error(f'Budget {budget_name} must be monthly')
-    start_str = recurrence.find('{http://www.gnucash.org/XML/recurrence}start')[0].text
-    periods = int(budget.findtext('{http://www.gnucash.org/XML/bgt}num-periods'))
+    budget_name = budget.findtext("{http://www.gnucash.org/XML/bgt}name")
+    recurrence = budget.find("{http://www.gnucash.org/XML/bgt}recurrence")
+    if recurrence.findtext("{http://www.gnucash.org/XML/recurrence}period_type") != "month":
+        throw_error(f"Budget {budget_name} must be monthly")
+    start_str = recurrence.find("{http://www.gnucash.org/XML/recurrence}start")[0].text
+    periods = int(budget.findtext("{http://www.gnucash.org/XML/bgt}num-periods"))
     budget_months = MonthSet(start_str, periods)
 
     # And make a budget object for each thing we find in the budget which actually has a value
-    x_accounts = list(budget.find('{http://www.gnucash.org/XML/bgt}slots'))
+    x_accounts = list(budget.find("{http://www.gnucash.org/XML/bgt}slots"))
     if not x_accounts:
-        throw_error(f'Budget {budget_name} must contain at least one account')
+        throw_error(f"Budget {budget_name} must contain at least one account")
     for x_account in x_accounts:
-        uid = x_account.findtext('{http://www.gnucash.org/XML/slot}key')
+        uid = x_account.findtext("{http://www.gnucash.org/XML/slot}key")
         control_acc = ControlAccount(uid, periods)
         has_value = False
-        for x_slot in list(x_account.find('{http://www.gnucash.org/XML/slot}value')):
+        for x_slot in list(x_account.find("{http://www.gnucash.org/XML/slot}value")):
             control_acc.budgets[int(x_slot[0].text)] = unrationalize(x_slot[1].text)
-            if unrationalize(x_slot[1].text) > 1.0: has_value = True
+            if unrationalize(x_slot[1].text) > 1.0:
+                has_value = True
         if has_value:
             control_accounts[uid] = control_acc
 
@@ -564,62 +570,67 @@ def parse_gnucash_file(filename, control_accounts, control_account_names):
     # control accounts, adding names to the control accounts, and creating a reverse hash
     spend_accounts = {}
 
-    for x_account in book.findall('{http://www.gnucash.org/XML/gnc}account'):
-        a_id = x_account.findtext('{http://www.gnucash.org/XML/act}id')
-        p_id = x_account.findtext('{http://www.gnucash.org/XML/act}parent')
-        name = x_account.findtext('{http://www.gnucash.org/XML/act}name')
+    for x_account in book.findall("{http://www.gnucash.org/XML/gnc}account"):
+        a_id = x_account.findtext("{http://www.gnucash.org/XML/act}id")
+        p_id = x_account.findtext("{http://www.gnucash.org/XML/act}parent")
+        name = x_account.findtext("{http://www.gnucash.org/XML/act}name")
 
         if a_id in control_accounts:
             # This exactly matches the control account
             control_account_names[name] = a_id
             control_accounts[a_id].name = name
-            spend_acc = SpendAccount(a_id, periods, 'Uncategorized', '', control_accounts[a_id])
+            spend_acc = SpendAccount(a_id, periods, "Uncategorized", "", control_accounts[a_id])
             spend_accounts[a_id] = spend_acc
             control_accounts[a_id].sas.append(spend_acc)
         elif p_id in spend_accounts:
             # This is a child of something which was already covered
             parent = spend_accounts[p_id]
-            spend_acc = SpendAccount(a_id,
-                                     periods,
-                                     name,
-                                     name if parent.path == '' else parent.path + "/" + name,
-                                     parent.control_account)
+            spend_acc = SpendAccount(
+                a_id,
+                periods,
+                name,
+                name if parent.path == "" else parent.path + "/" + name,
+                parent.control_account,
+            )
             spend_accounts[a_id] = spend_acc
             parent.control_account.sas.append(spend_acc)
 
     # Finally ready to process each transaction
-    for x_trans in book.findall('{http://www.gnucash.org/XML/gnc}transaction'):
-        date_str = x_trans.find('{http://www.gnucash.org/XML/trn}date-posted')[0].text[:10]
+    for x_trans in book.findall("{http://www.gnucash.org/XML/gnc}transaction"):
+        date_str = x_trans.find("{http://www.gnucash.org/XML/trn}date-posted")[0].text[:10]
 
-        #Check transaction is in date
+        # Check transaction is in date
         if budget_months.in_range(date_str):
 
             # Yes, gather common info
-            desc = x_trans.findtext('{http://www.gnucash.org/XML/trn}description') or ''
+            desc = x_trans.findtext("{http://www.gnucash.org/XML/trn}description") or ""
             notes = None
             col = budget_months.column(date_str)
-            if x_trans.find('{http://www.gnucash.org/XML/trn}slots') is not None:
-                for x_slot in list(x_trans.find('{http://www.gnucash.org/XML/trn}slots')):
-                    if x_slot[0].text == 'notes':
+            if x_trans.find("{http://www.gnucash.org/XML/trn}slots") is not None:
+                for x_slot in list(x_trans.find("{http://www.gnucash.org/XML/trn}slots")):
+                    if x_slot[0].text == "notes":
                         notes = x_slot[1].text
                         break
 
             # Look for splits we care about
-            for x_split in list(x_trans.find('{http://www.gnucash.org/XML/trn}splits')):
+            for x_split in list(x_trans.find("{http://www.gnucash.org/XML/trn}splits")):
                 account = spend_accounts.get(
-                    x_split.findtext('{http://www.gnucash.org/XML/split}account'))
+                    x_split.findtext("{http://www.gnucash.org/XML/split}account")
+                )
                 if account is not None:
-                    memo = x_split.findtext('{http://www.gnucash.org/XML/split}memo')
+                    memo = x_split.findtext("{http://www.gnucash.org/XML/split}memo")
                     if notes and memo:
-                        memo = "{} / {}".format(notes, memo)
+                        memo = f"{notes} / {memo}"
                     value = unrationalize(
-                        x_split.findtext('{http://www.gnucash.org/XML/split}value'))
+                        x_split.findtext("{http://www.gnucash.org/XML/split}value")
+                    )
                     # Tally expenditure at both the spend account and control account,
                     # track transactions at spend account
                     account.expenditures[col] += value
                     account.control_account.expenditures[col] += value
                     account.transactions[col].append(
-                        [date_str, value, desc, memo if memo else notes])
+                        [date_str, value, desc, memo if memo else notes]
+                    )
 
     # Close the XML document
     tree = None
@@ -630,8 +641,8 @@ def parse_gnucash_file(filename, control_accounts, control_account_names):
             try:
                 trnlist.sort()
             except TypeError as err:
-                print('ERROR sorting Account "{}" ({})'.format(acc.name, err))
-                print('\n'.join(['   ' + str(t) for t in trnlist]))
+                print(f'ERROR sorting Account "{acc.name}" ({err})')
+                print("\n".join(["   " + str(t) for t in trnlist]))
                 sys.exit(1)
 
     # Return the title and monthSet
@@ -644,11 +655,12 @@ def create_totals_and_styles(accounts, account_names, months):
     returns a list of [account_totals, month_totals, grand_totals, styles]"""
 
     # Create a matrix of styles based on over/under spend, and vectors for the totals
-    account_totals = [[0, 0, 0] for i in range(len(accounts.keys()))] #@UnusedVariable
-    month_totals = [[0, 0] for i in range(months.count)] #@UnusedVariable
-    styles = [[['none', 'none'] for i in range(months.count)] for j in accounts] #@UnusedVariable
+    account_totals = [[0, 0, 0] for i in range(len(accounts.keys()))]  # @UnusedVariable
+    month_totals = [[0, 0] for i in range(months.count)]  # @UnusedVariable
+    styles = [[["none", "none"] for i in range(months.count)] for j in accounts]  # @UnusedVariable
 
-    today_col = months.column(date.today().isoformat())
+    last_month = date.today().replace(day=1) - timedelta(days=1)
+    last_col = months.column(last_month.isoformat())
 
     row = 0
     for name in sorted(account_names):
@@ -658,28 +670,28 @@ def create_totals_and_styles(accounts, account_names, months):
         for col in range(months.count):
             totals[0] += account.expenditures[col]
             totals[1] += account.budgets[col]
-            if col <= today_col:
-                totals[2] += (account.budgets[col] - account.expenditures[col])
+            if col <= last_col:
+                totals[2] += account.budgets[col] - account.expenditures[col]
             month_totals[col][0] += account.expenditures[col]
             month_totals[col][1] += account.budgets[col]
             if account.expenditures[col] > account.budgets[col] and account.budgets[col] > 0:
                 if totals[2] < 0:
-                    styles[row][col][0] = 'overm_overy'
+                    styles[row][col][0] = "overm_overy"
                 else:
-                    styles[row][col][0] = 'overm'
+                    styles[row][col][0] = "overm"
             else:
                 if totals[0] > totals[1]:
-                    styles[row][col][0] = 'overy'
-                elif col <= today_col:
-                    styles[row][col][0] = 'good'
+                    styles[row][col][0] = "overy"
+                elif col <= last_col:
+                    styles[row][col][0] = "good"
                 else:
-                    styles[row][col][0] = 'future'
+                    styles[row][col][0] = "future"
             if account.budgets[col] < 0.01:
-                styles[row][col][1] = 'bud_none'
-            elif col > today_col:
-                styles[row][col][1] = 'bud_future'
+                styles[row][col][1] = "bud_none"
+            elif col > last_col:
+                styles[row][col][1] = "bud_future"
             else:
-                styles[row][col][1] = 'bud_real'
+                styles[row][col][1] = "bud_real"
 
         account_totals[row] = totals
         row += 1
@@ -689,8 +701,17 @@ def create_totals_and_styles(accounts, account_names, months):
     return [account_totals, month_totals, grand_totals, styles]
 
 
-def write_html(filename, title, accounts, account_names, account_totals,
-               months, month_totals, grand_totals, styles):
+def write_html(
+    filename,
+    title,
+    accounts,
+    account_names,
+    account_totals,
+    months,
+    month_totals,
+    grand_totals,
+    styles,
+):
     """Writes the supplied account data out as HTML at the specified filename."""
 
     # Open our output document
@@ -699,19 +720,19 @@ def write_html(filename, title, accounts, account_names, account_totals,
     # Output HTML header, including embedded Javascript and CSV
     wt.open("html", 'xmlns="http://www.w3.org/1999/xhtml"')
     wt.open("head")
-    wt.write("title", '', title)
+    wt.write("title", "", title)
     wt.write_text(CSS_TEXT)
     wt.open("script", 'type="text/javascript"')
     wt.write_text("// <![CDATA[\n\n")
-    wt.write_text("var periods = {};\n".format(months.count))
-    wt.write_text("var accounts = {};\n".format(len(accounts.keys())))
+    wt.write_text(f"var periods = {months.count};\n")
+    wt.write_text(f"var accounts = {len(accounts.keys())};\n")
 
     # JavaScript account array
     # ========================
     # > 1D array of control_account names
     wt.write_text("var accounts = [")
     for name in sorted(account_names.keys()):
-        wt.write_text("'{}',".format(escape(name)))
+        wt.write_text(f"'{escape(name)}',")
     wt.write_text("];\n")
 
     # JavaScript month array
@@ -719,7 +740,7 @@ def write_html(filename, title, accounts, account_names, account_totals,
     # > 1D array of month names
     wt.write_text("var months = [")
     for month in months.column_names():
-        wt.write_text("'{}',".format(month))
+        wt.write_text(f"'{month}',")
     wt.write_text("];\n")
 
     # JavaScript control_account matrix
@@ -731,7 +752,7 @@ def write_html(filename, title, accounts, account_names, account_totals,
         account = accounts[account_names[name]]
         wt.write_text("[")
         for col in range(0, months.count):
-            wt.write_text("[{},{}],".format(account.budgets[col], account.expenditures[col]))
+            wt.write_text(f"[{account.budgets[col]},{account.expenditures[col]}],")
         wt.write_text("],\n")
     wt.write_text("];\n")
 
@@ -744,7 +765,7 @@ def write_html(filename, title, accounts, account_names, account_totals,
         account = accounts[account_names[name]]
         wt.write_text("[")
         for spnd in account.sas:
-            wt.write_text("['{}',{}],".format(spnd.name, sum(spnd.expenditures)))
+            wt.write_text(f"['{spnd.name}',{sum(spnd.expenditures)}],")
         wt.write_text("],\n")
     wt.write_text("];\n")
 
@@ -763,13 +784,13 @@ def write_html(filename, title, accounts, account_names, account_totals,
             wt.write_text("[")
             for spnd in account.sas:
                 if spnd.transactions[col]:
-                    wt.write_text("['{}','${:.2f}',[".format(spnd.name, spnd.expenditures[col]))
+                    wt.write_text(f"['{spnd.name}','${spnd.expenditures[col]:.2f}',[")
                     for trn in spnd.transactions[col]:
-                        #print(trn)
-                        wt.write_text("['{}',".format(trn[0]))
-                        wt.write_text("'{}','{}',".format(
-                            *['' if not x else escape(x.replace("'", "\\'")) for x in trn[2:4]]))
-                        wt.write_text("'${:.2f}'],".format(trn[1]))
+                        # print(trn)
+                        wt.write_text(f"['{trn[0]}',")
+                        escaped = ["" if not x else escape(x.replace("'", "\\'")) for x in trn[2:4]]
+                        wt.write_text(f"'{escaped[0]}','{escaped[1]}',")
+                        wt.write_text(f"'${trn[1]:.2f}'],")
                     wt.write_text("]],")
             wt.write_text("],\n")
         wt.write_text("],\n")
@@ -782,32 +803,32 @@ def write_html(filename, title, accounts, account_names, account_totals,
 
     wt.open("body")
 
-    wt.open('table', 'class="mainTable"')
-    wt.open('tr')
-    wt.open('td')
-    wt.open('table', 'style="height:100%"')
+    wt.open("table", 'class="mainTable"')
+    wt.open("tr")
+    wt.open("td")
+    wt.open("table", 'style="height:100%"')
 
-    #Title
-    wt.open('tr')
-    wt.open('td', 'class="titleHolder"')
-    wt.write("h1", '', title)
+    # Title
+    wt.open("tr")
+    wt.open("td", 'class="titleHolder"')
+    wt.write("h1", "", title)
     wt.close()
     wt.close()
-    wt.open('tr')
-    wt.open('td', 'class="dataTableHolder"')
+    wt.open("tr")
+    wt.open("td", 'class="dataTableHolder"')
 
-    wt.open('table', 'class="dataTable" id="dataTable" onmouseout="clearSelect()"')
+    wt.open("table", 'class="dataTable" id="dataTable" onmouseout="clearSelect()"')
 
-    #Table header
+    # Table header
     wt.open("tr")
     wt.write("td", 'class="blank"')
     i = 0
     for month in months.column_names():
-        wt.write('th', 'class="center" onmouseover="selectMonthHeader({})"'.format(i), month)
+        wt.write("th", f'class="center" onmouseover="selectMonthHeader({i})"', month)
         i += 1
-    wt.write('td', 'class="blank"')
-    wt.write('th', 'class="center"', "Totals")
-    wt.write('th', "", "Remaining")
+    wt.write("td", 'class="blank"')
+    wt.write("th", 'class="center"', "Totals")
+    wt.write("th", "", "Remaining")
     wt.close()
 
     # One row per account
@@ -816,34 +837,44 @@ def write_html(filename, title, accounts, account_names, account_totals,
         account = accounts[account_names[name]]
 
         wt.open("tr")
-        wt.write("th",
-                 'class="right" onmouseover="selectAccountHeader({})"'.format(row), escape(name))
+        wt.write(
+            "th", f'class="right" onmouseover="selectAccountHeader({row})"', escape(name)
+        )
         for col in range(0, months.count):
-            wt.open("td", 'onmouseover="selectCell({},{})"'.format(row, col))
-            wt.write("p", "class='{}'".format(styles[row][col][0]), "${:.0f}".format(
-                account.expenditures[col]))
-            wt.write("p", "class='{}'".format(styles[row][col][1]), "${:.0f}".format(
-                account.budgets[col]))
+            wt.open("td", f'onmouseover="selectCell({row},{col})"')
+            wt.write(
+                "p",
+                f"class='{styles[row][col][0]}'",
+                f"${account.expenditures[col]:.0f}",
+            )
+            wt.write(
+                "p",
+                f"class='{styles[row][col][1]}'",
+                f"${account.budgets[col]:.0f}",
+            )
             wt.close()
 
         wt.write("td", 'class="blank"')
-        wt.open("td", 'onmouseover="selectAccountTotal({})"'.format(row))
-        wt.write("p",
-                 "class='{}'".format(
-                     'overy' if account_totals[row][0] > account_totals[row][1] else 'good'),
-                 "${:.0f}".format(account_totals[row][0]))
-        wt.write("p", "class='bud_real'", "${:.0f}".format(account_totals[row][1]))
+        wt.open("td", f'onmouseover="selectAccountTotal({row})"')
+        wt.write(
+            "p",
+            f"class='{'overy' if account_totals[row][0] > account_totals[row][1] else 'good'}'",
+            f"${account_totals[row][0]:.0f}",
+        )
+        wt.write("p", "class='bud_real'", f"${account_totals[row][1]:.0f}")
         wt.close()
         wt.open("td", 'class="center"')
-        wt.write("p",
-                 "class='{}'".format('overy' if account_totals[row][2] < 0 else 'good'),
-                 "${:.2f}".format(account_totals[row][2]))
+        wt.write(
+            "p",
+            f"class='{'overy' if account_totals[row][2] < 0 else 'good'}'",
+            f"${account_totals[row][2]:.2f}",
+        )
         wt.close()
         wt.close()
         row += 1
 
     wt.open("tr")
-    for col in range(0, months.count+4):
+    for col in range(0, months.count + 4):
         wt.write("td", 'class="blank"')
     wt.close()
 
@@ -851,22 +882,29 @@ def write_html(filename, title, accounts, account_names, account_totals,
     wt.open("tr")
     wt.write("th", 'class="right"', "Totals")
     for col in range(0, months.count):
-        wt.open('td', 'onmouseover="selectMonthTotal({})"'.format(col))
+        wt.open("td", f'onmouseover="selectMonthTotal({col})"')
         wt.write(
             "p",
-            "class='{}'".format('overy' if month_totals[col][0] > month_totals[col][1] else 'good'),
-            "${:.0f}".format(month_totals[col][0]))
-        wt.write("p", "class='bud_real'", "${:.0f}".format(month_totals[col][1]))
+            f"class='{'overy' if month_totals[col][0] > month_totals[col][1] else 'good'}'",
+            f"${month_totals[col][0]:.0f}",
+        )
+        wt.write("p", "class='bud_real'", f"${month_totals[col][1]:.0f}")
         wt.close()
     wt.write("td", 'class="blank"')
     wt.open("td")
-    wt.write("p", "class='{}'".format('overy' if grand_totals[0] > grand_totals[1] else 'good'),
-             "${:.0f}".format(grand_totals[0]))
-    wt.write("p", "class='bud_real'", "${:.0f}".format(grand_totals[1]))
+    wt.write(
+        "p",
+        f"class='{'overy' if grand_totals[0] > grand_totals[1] else 'good'}'",
+        f"${grand_totals[0]:.0f}",
+    )
+    wt.write("p", "class='bud_real'", f"${grand_totals[1]:.0f}")
     wt.close()
     wt.open("td", 'class="center"')
-    wt.write("p", "class='{}'".format('overy' if grand_totals[2] < 0 else 'good'),
-             "${:.2f}".format(grand_totals[2]))
+    wt.write(
+        "p",
+        f"class='{'overy' if grand_totals[2] < 0 else 'good'}'",
+        f"${grand_totals[2]:.2f}",
+    )
     wt.close()
     wt.close()
 
@@ -875,21 +913,21 @@ def write_html(filename, title, accounts, account_names, account_totals,
     wt.close()
     wt.close()
 
-    #Padding cell
-    wt.open('tr')
-    wt.write('td', 'class="padHolder"')
+    # Padding cell
+    wt.open("tr")
+    wt.write("td", 'class="padHolder"')
     wt.close()
 
-    wt.close() #Table holding Title/Data/Pad
+    wt.close()  # Table holding Title/Data/Pad
     wt.close()
 
     # Holding area for extra information
-    wt.write('td', 'class="auxiliaryHolder" id="auxiliaryHolder"')
+    wt.write("td", 'class="auxiliaryHolder" id="auxiliaryHolder"')
 
-    wt.close() #Tr
-    wt.close() #MainTable
-    wt.close() #Body
-    wt.close() #Html
+    wt.close()  # Tr
+    wt.close()  # MainTable
+    wt.close()  # Body
+    wt.close()  # Html
 
 
 def main():
@@ -905,8 +943,8 @@ def main():
     out_name = sys.argv[3]
 
     # Check the mode is valid
-    if mode != 'budget':
-        throw_error("Mode {} is not valid".format(mode))
+    if mode != "budget":
+        throw_error(f"Mode {mode} is not valid")
     # Check the file exists
     if not os.path.isfile(in_name):
         throw_error("File does not exist")
@@ -921,13 +959,23 @@ def main():
 
     # Create a matrix of styles based on over/under spend, and vectors for the totals
     [account_totals, month_totals, grand_totals, styles] = create_totals_and_styles(
-        accounts=accounts, account_names=account_names, months=months)
+        accounts=accounts, account_names=account_names, months=months
+    )
 
     # And write to HTML
     title = os.path.basename(in_name) + " " + budget_name + " @ " + date.today().isoformat()
-    write_html(out_name, title, accounts, account_names, account_totals,
-               months, month_totals, grand_totals, styles)
+    write_html(
+        out_name,
+        title,
+        accounts,
+        account_names,
+        account_totals,
+        months,
+        month_totals,
+        grand_totals,
+        styles,
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
