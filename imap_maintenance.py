@@ -22,6 +22,7 @@ import json
 import re
 import os
 import smtplib
+import socket
 import sys
 from typing import Any, Optional
 
@@ -57,12 +58,12 @@ class Logger:
 
     def fine(self, text: str) -> None:
         """Logs text at the FINE log level."""
-        if FLAGS.verbose:
+        if ARGS.verbose:
             Logger._write_colored_line(34, text)  # Blue
 
     def info(self, text: str) -> None:
         """Logs text at the INFO log level."""
-        if not FLAGS.quiet:
+        if not ARGS.quiet:
             Logger._write_colored_line(32, text)  # Green
 
     def warn(self, text: str) -> None:
@@ -81,32 +82,38 @@ class Logger:
             print(text)
 
 
-FLAGS = create_parser().parse_args()
+ARGS = create_parser().parse_args()
 LOGGER = Logger()
 
 
 class SmtpSender:
     """Encapsulates sending using a particular email account."""
 
-    def __init__(self, user: str, password: str, hostname: str, port: int) -> None:
+    def __init__(self, user: str, password: str, hostname: str, port: int, to_addr: str) -> None:
         self.user = user
         self.password = password
         self.hostname = hostname
         self.port = port
+        self.to_addr = to_addr
 
-    def send(self, to_address: str, subject: str, text: str) -> None:
-        """Sends an email via SMTP."""
-        smtp = smtplib.SMTP(self.hostname, self.port)
+    def send(self, subject: str, text: str) -> Optional[str]:
+        """Sends an email via SMTP, returning None on success."""
+        try:
+            smtp = smtplib.SMTP(self.hostname, self.port)
+        except (socket.gaierror, smtplib.SMTPException) as e:
+            return f"Failed to open SMTP sender: {e}"
+
         try:
             smtp.starttls()
             smtp.login(self.user, self.password)
             msg = email.mime.text.MIMEText(text)
             msg["From"] = self.user
-            msg["To"] = to_address
+            msg["To"] = self.to_addr
             msg["Subject"] = subject
-            smtp.sendmail(self.user, to_address, msg.as_string())
+            smtp.sendmail(self.user, self.to_addr, msg.as_string())
+            return None
         except smtplib.SMTPException as e:
-            LOGGER.warn(f"Failed to send email to {to_address}: {e}")
+            return f"Failed to send email: {e}"
         finally:
             smtp.quit()
 
@@ -116,81 +123,58 @@ class Account:
 
     def __init__(self, json_account: dict[str, Any]) -> None:
         """Constructs a new account from the supplied json, validating input as required."""
-        self.hostname = json_account["hostname"]
-        self.port = int(json_account["port"])
         self.user = json_account["user"]
         with open(os.path.expanduser(json_account["password_file"]), encoding="utf-8") as f:
             self.password = f.readline().rstrip()
+
+        hostname = json_account["hostname"]
+        port = int(json_account["port"])
+        self.connection = imaplib.IMAP4_SSL(hostname, port)
+        LOGGER.fine(f"Opened connection to {hostname}:{port}")
+        self.authenticated = False
+
+        # Note: Currently the SMTP alerting fields are mandatory in all config files. We could
+        # consider making them optional.
         self.sender = SmtpSender(
             self.user,
             self.password,
             json_account["smtp_hostname"],
             int(json_account["smtp_port"]),
+            json_account["alert_address"],
         )
-        self.alert_address = json_account.get("alert_address")
         self.operations = [Operation(op_json) for op_json in json_account["operations"]]
-        self.connection: Optional[imaplib.IMAP4_SSL] = None
 
-    def open(self) -> None:
-        """Opens an IMAP connection to this specified account."""
-        assert self.connection is None
-        self.connection = imaplib.IMAP4_SSL(self.hostname, self.port)
-        LOGGER.fine(f"Opened connection to {self.hostname}:{self.port}")
+    def __enter__(self) -> "Account":
+        # Note the use of a context manager here hasn't really provided a lot of protection since
+        # execute could still be called outside the window. Really want the lifecycle of the context
+        # to match the lifecycle of the object but thats not what python does.
         self.connection.login(self.user, self.password)
-        if FLAGS.verbose:
+        if ARGS.verbose:
             stat, resp = self.connection.list()
             mailbox_count = len(resp) if stat == "OK" else "N/K"
             print(f"authenticated as {self.user}, total {mailbox_count} mailboxes")
+        self.authenticated = True
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        host = self.connection.host
+        self.connection.logout()
+        LOGGER.fine(f"Closed connection to {host}")
+        self.authenticated = False
 
     def execute(self) -> None:
         """Performs all operations, respecting dry run and verbose."""
-        assert self.connection is not None
+        assert self.authenticated
         for operation in self.operations:
-            operation.execute(self.connection)
-
-    def close(self) -> None:
-        """Cleanly closes an IMAP connection to this specified account."""
-        assert self.connection is not None
-        self.connection.logout()
-        self.connection = None
-        LOGGER.fine(f"Closed connection to {self.hostname}")
-
-
-def _send_alert(connection: imaplib.IMAP4_SSL, uids: list[str], account: Account) -> None:
-    """Sends an alert email for each matched message via SMTP."""
-    email_parser = email.parser.BytesParser()
-    alerts = []
-    for uid in uids:
-        stat, resp = connection.uid("FETCH", uid, "(RFC822.HEADER)")
-        if stat == "OK":
-            msg = email_parser.parsebytes(resp[0][1])
-            alerts.append((msg["From"], msg["Subject"]))
-        else:
-            LOGGER.warn(f"Error fetching headers for UID {uid}")
-    smtp = smtplib.SMTP(account.smtp_hostname, account.smtp_port)
-    try:
-        smtp.starttls()
-        smtp.login(account.user, account.password)
-        for from_addr, subject in alerts:
-            alert = email.mime.text.MIMEText(subject or "")
-            alert["From"] = account.user
-            alert["To"] = account.alert_address
-            alert["Subject"] = f"Email from: {from_addr}"
-            try:
-                smtp.sendmail(account.user, account.alert_address, alert.as_string())
-            except smtplib.SMTPException as e:
-                LOGGER.warn(f"Failed to send alert for message from {from_addr}: {e}")
-    finally:
-        smtp.quit()
+            operation.execute(self)
 
 
 class OpCmd(ABC):
     """Encapsulates one part of an operation on an IMAP account."""
 
     @abstractmethod
-    def execute(self, connection: imaplib.IMAP4_SSL, uids: list[str], target: str) -> Optional[str]:
+    def execute(self, account: Account, uids: list[str], dest: Optional[str]) -> Optional[str]:
         """Runs this command on the supplied UIDs, returning None on success."""
-        pass
 
 
 class StoreOpCmd(OpCmd):
@@ -199,25 +183,42 @@ class StoreOpCmd(OpCmd):
     def __init__(self, *args: str) -> None:
         self.args = args
 
-    def execute(self, connection: imaplib.IMAP4_SSL, uids: list[str], target: str) -> Optional[str]:
-        stat, resp = imaplib.IMAP4_SSL.uid(connection, "STORE", ",".join(uids), *self.args)
-        return None if stat == "OK" else resp
+    def execute(self, account: Account, uids: list[str], dest: Optional[str]) -> Optional[str]:
+        stat, resp = imaplib.IMAP4_SSL.uid(account.connection, "STORE", ",".join(uids), *self.args)
+        return None if stat == "OK" else str(resp)
 
 
 class CopyOpCmd(OpCmd):
     """Copy to the target folder using IMAP4_SSL."""
 
-    def execute(self, connection: imaplib.IMAP4_SSL, uids: list[str], target: str) -> Optional[str]:
-        stat, resp = imaplib.IMAP4_SSL.uid(connection, "COPY", ",".join(uids), target)
-        return None if stat == "OK" else resp
+    def execute(self, account: Account, uids: list[str], dest: Optional[str]) -> Optional[str]:
+        assert dest is not None
+        stat, resp = imaplib.IMAP4_SSL.uid(account.connection, "COPY", ",".join(uids), dest)
+        return None if stat == "OK" else str(resp)
 
 
 class ExpungeOpCmd(OpCmd):
     """Copy to expunge using IMAP4_SSL."""
 
-    def execute(self, connection: imaplib.IMAP4_SSL, uids: list[str], target: str) -> Optional[str]:
-        stat, resp = imaplib.IMAP4_SSL.expunge(connection)
-        return None if stat == "OK" else resp
+    def execute(self, account: Account, uids: list[str], dest: Optional[str]) -> Optional[str]:
+        stat, resp = imaplib.IMAP4_SSL.expunge(account.connection)
+        return None if stat == "OK" else str(resp)
+
+
+class AlertOpCommand(OpCmd):
+    """Send information about the messages by SMTP."""
+
+    def execute(self, account: Account, uids: list[str], dest: Optional[str]) -> Optional[str]:
+        email_parser = email.parser.BytesParser()
+        for uid in uids:
+            stat, resp = account.connection.uid("FETCH", uid, "(RFC822.HEADER)")
+            if stat != "OK":
+                return f"Error fetching message headers: {resp}"
+            msg = email_parser.parsebytes(resp[0][1])
+            send_err = account.sender.send(f"Email from: {msg['From']}", msg["Subject"])
+            if send_err is not None:
+                return send_err
+        return None
 
 
 class Operation:
@@ -240,6 +241,10 @@ class Operation:
             ExpungeOpCmd(),
         ),
         "MARK_READ": (StoreOpCmd("+FLAGS.SILENT", r"(\Seen)"),),
+        "ALERT_MARK_READ": (
+            AlertOpCommand(),
+            StoreOpCmd("+FLAGS.SILENT", r"(\Seen)"),
+        ),
     }
 
     def __init__(self, json_op: dict[str, Any]) -> None:
@@ -250,6 +255,7 @@ class Operation:
             )
         self.action = json_op["action"]
         self.commands = Operation._ACTIONS[json_op["action"]]
+        # For semantic niceness, allow "source" as the query path in a move operation.
         if any(isinstance(cmd, CopyOpCmd) for cmd in self.commands):
             self.dest: Optional[str] = json_op["dest"]
             self.path = json_op["source"]
@@ -258,43 +264,44 @@ class Operation:
             self.path = json_op["path"]
         self.query = Operation._query(json_op)
 
-    def execute(self, connection: imaplib.IMAP4_SSL) -> None:
+    def execute(self, account: Account) -> None:
         """Performs this operation using a supplied IMAP4 connection, respecting dry run and
         verbose flags."""
-        resp = connection.select(self.path)
-        if resp[0] != "OK":
-            LOGGER.warn(resp[1].decode("utf-8"))
+        assert account.connection is not None
+        stat, resp = account.connection.select(self.path)
+        if stat != "OK":
+            LOGGER.warn(f'Error on SELECT {resp[0].decode("utf-8") if resp[0] is not None else ""}')
             return
 
         try:
-            stat, resp = connection.uid("SEARCH", self.query)
+            stat, resp = account.connection.uid("SEARCH", self.query)
             if stat != "OK":
-                LOGGER.warn(f"Error with SEARCH {self}: {resp.decode('utf-8')}")
+                LOGGER.warn(f"Error on SEARCH {self}: {resp}")
                 return
-            uids = resp[0].decode("utf-8").split()
+            uids = resp[0].decode("utf-8").split() if resp[0] is not None else []
 
             if len(uids) == 0:
                 LOGGER.fine(f"{self} did not match any messages")
-            elif FLAGS.dry_run:
+            elif ARGS.dry_run:
                 LOGGER.info(f"{self} would have impacted {len(uids)} messages")
-                if FLAGS.verbose:
-                    Operation._print_messages(connection, uids)
+                if ARGS.verbose:
+                    Operation._print_messages(account.connection, uids)
             else:
-                if FLAGS.verbose:
+                if ARGS.verbose:
                     print(f"{self} matched {len(uids)} messages:")
-                    Operation._print_messages(connection, uids)
+                    Operation._print_messages(account.connection, uids)
                 for command in self.commands:
-                    err = command.execute(connection, uids, self.dest)
+                    err = command.execute(account, uids, self.dest)
                     if err is not None:
                         LOGGER.warn(f"Error executing {self}: {err}")
                         return
                 LOGGER.info(f"{self} impacted {len(uids)} messages")
         finally:
-            connection.close()
+            account.connection.close()
 
     def __str__(self) -> str:
-        dest = f"->{self.dest}" if self.dest else ""
-        return f"({self.action} {self.path}{dest} WHERE {self.query})"
+        path = f"{self.path}->{self.dest}" if self.dest else f"{self.path}"
+        return f"({self.action} {path} WHERE {self.query})"
 
     @staticmethod
     def _query(json_op: dict[str, Any]) -> str:
@@ -323,30 +330,24 @@ class Operation:
                 print(f"  Error fetching UID {uid}")
             else:
                 e = email_parser.parsebytes(resp[0][1])
-                print(f'  {e["Delivery-date"][:16]}   {e["From"]} --> {e["To"]}   "{e["Subject"]}"')
+                print(f'  {e["Date"][:16]}   {e["From"]} --> {e["To"]}   "{e["Subject"]}"')
 
 
 def main() -> None:
     """Runs the script using the supplied command line arguments."""
     comment_line = re.compile(r"^\s*#")
-    config_lines = (l for l in FLAGS.config_file[0].readlines() if not comment_line.match(l))
+    config_lines = (l for l in ARGS.config_file[0].readlines() if not comment_line.match(l))
 
     LOGGER.info("Starting IMAP maintenance at " + datetime.now().isoformat(timespec="seconds"))
     try:
         config_json = json.loads("".join(config_lines))
-        accounts = [Account(account) for account in config_json]
-    except (KeyError, json.decoder.JSONDecodeError) as e:
-        LOGGER.error(f"{type(e).__name__}: {e}")
+    except json.decoder.JSONDecodeError as e:
+        LOGGER.error(f"JSON decode error: {e}")
         sys.exit(1)
 
-    for account in accounts:
-        account.open()
-        try:
+    for account_json in config_json:
+        with Account(account_json) as account:
             account.execute()
-        except imaplib.IMAP4.error as e:
-            LOGGER.error(str(e))
-        finally:
-            account.close()
 
 
 if __name__ == "__main__":
