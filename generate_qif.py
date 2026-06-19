@@ -112,24 +112,30 @@ class AccountMap:
         header = "!Account\nN{}\nTBank\n^\n!Type:Bank".format(self.account)
         transactions = []
         # Now go through each line
-        for line in contents.split('\n'):
+        for line in contents.split("\n"):
+            # Skip any header
+            if line.startswith('"DATE",'):
+                continue
             # Perform each replacement
             for replacement in self.replacements:
                 line = re.sub(replacement[0], replacement[1], line)
             # Split the CSV
-            cpt = [c.strip('\"\n\r') for c in re.split(r'"\s*,\s*"', line)]
+            cpt = [c.strip('"\n\r') for c in re.split(r',(?=(?:[^"]*"[^"]*")*[^"]*$)', line)]
             # Write the components
             if len(cpt) != 5:
                 continue
-            transaction = 'D{}\nT{}\nC{}\n'.format(cpt[0], cpt[1], cpt[2])
+            # Previous Wells Fargo
+            # transaction = "D{}\nT{}\nC{}\n".format(cpt[0], cpt[1], cpt[2])
+            # June 2026 Wells Fargo
+            transaction = "D{}\nT{}\nC*".format(cpt[0], cpt[2])
             if len(cpt[3]) > 0:
-                transaction += 'N{}\n'.format(cpt[3])
-            transaction += 'M{}\n'.format(cpt[4])
+                transaction += "\nN{}".format(cpt[3])
+            transaction += "\nM{}".format(cpt[1])
             # And match the account if possible
             for classification in self.classifications:
-                if re.search(classification[0], cpt[4]):
-                    _act('Assign {} to {}'.format(cpt[4], classification[1]))
-                    transaction += 'L{}\n'.format(classification[1])
+                if re.search(classification[0], cpt[1]):
+                    _act("Assign {} to {}".format(cpt[1], classification[1]))
+                    transaction += "\nL{}".format(classification[1])
                     break
             transactions.append(transaction)
         return (header, transactions)
